@@ -212,7 +212,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("addcode", addcode))
     app.add_handler(CommandHandler("verify", verify))
-    app.add_handler(CommandHandler(CallbackQueryHandler(verify, pattern="verify")))
+   app.add_handler(CallbackQueryHandler(verify, pattern="verify"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu))
 
     print("Bot is starting...")
