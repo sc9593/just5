@@ -113,7 +113,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 users[ref]["refs"].append(uid)
     
     save_users(users)
-    await update.message.reply_text("" Welcome to Myntra Free Code Bot!\nInvite karo aur free code pao "", reply_markup=main_menu())
+    await update.message.reply_text("Welcome to Myntra Free Code Bot!\nInvite karo aur free code pao", reply_markup=main_menu())
 
 async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
