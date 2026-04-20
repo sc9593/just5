@@ -113,7 +113,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 users[ref]["refs"].append(uid)
     
     save_users(users)
-    await update.message.reply_text("🎉 Welcome!", reply_markup=main_menu())
+    await update.message.reply_text(""🔥 Welcome to Myntra Free Code Bot!\nInvite karo aur free code pao 💸"", reply_markup=main_menu())
 
 async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -132,7 +132,7 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"💰 {users[uid]['balance']} coins")
     elif text == "👥 Refer Earn":
         link = f"https://t.me/{context.bot.username}?start={uid}"
-        await update.message.reply_text(f"👥 Refer & Earn\n\n1 Refer = 1 Coin\n\n{link}")
+        await update.message.reply_text(f"👥 Refer & Earn\n\n"🔥 1 Refer = 1 Coin\n🎁 3 Refer = 1 Myntra Code"\n\n{link}")
     elif text == "🎁 Bonus":
         await update.message.reply_text("🎁 Coming soon")
     elif text == "💸 Withdraw":
