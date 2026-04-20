@@ -131,9 +131,11 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "💰 Balance":
         await update.message.reply_text(f"💰 {users[uid]['balance']} coins")
     elif text == "👥 Refer Earn":
-link = "https://t.me/" + context.bot.username + "?start=" + uid
-msg = "Refer & Earn\n\n1 Refer = 1 Coin\n3 Refer = 1 Myntra Code\n\n" + link
-await update.message.reply_text(msg)
+    link = "https://t.me/" + context.bot.username + "?start=" + uid
+
+    msg = "Refer & Earn\n\n1 Refer = 1 Coin\n3 Refer = 1 Myntra Code\n\n" + link
+
+    await update.message.reply_text(msg)
     elif text == "🎁 Bonus":
         await update.message.reply_text("🎁 Coming soon")
     elif text == "💸 Withdraw":
