@@ -1,153 +1,199 @@
-import logging
 import json
 from telegram import (
-    Update, ReplyKeyboardMarkup,
-    InlineKeyboardButton, InlineKeyboardMarkup
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
 )
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
-    CallbackQueryHandler, ContextTypes, filters
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
 )
 
-# ====== SETTINGS ======
+# ================= CONFIG =================
 BOT_TOKEN = "8653750221:AAFT-Yt-EaW-8tN1wl6MlRpZELtc4OcqxfY"
-CHANNEL_USERNAME = "@Sumanearningtrickk"
+
+CHANNELS = [
+    "@Sumanearningtrickk",
+    "@PaisaBachaoDealssss",
+    "@EarnBazaarrr",
+]
+
+CHANNEL_LINKS = [
+    "https://t.me/Sumanearningtrickk",
+    "https://t.me/PaisaBachaoDealssss",
+    "https://t.me/EarnBazaarrr",
+]
+
 ADMIN_ID = 7132741918
+SUPPORT = "@BOYSPROOF"
 
 DATA_FILE = "users.json"
 CODES_FILE = "codes.txt"
 
-logging.basicConfig(level=logging.INFO)
-
-# ====== LOAD/SAVE ======
+# ================= DATA =================
 def load_users():
     try:
-        with open(DATA_FILE) as f:
-            return json.load(f)
+        return json.load(open(DATA_FILE))
     except:
         return {}
 
-def save_users(d):
-    with open(DATA_FILE, "w") as f:
-        json.dump(d, f)
+def save_users(data):
+    json.dump(data, open(DATA_FILE, "w"))
 
 def load_codes():
     try:
-        with open(CODES_FILE) as f:
-            return f.read().splitlines()
+        return open(CODES_FILE).read().splitlines()
     except:
         return []
 
 def save_codes(c):
-    with open(CODES_FILE, "w") as f:
-        f.write("\n".join(c))
+    open(CODES_FILE, "w").write("\n".join(c))
 
 users = load_users()
 codes = load_codes()
 
-# ====== UI ======
+# ================= JOIN CHECK =================
+async def is_joined(bot, user_id):
+    for ch in CHANNELS:
+        try:
+            m = await bot.get_chat_member(ch, user_id)
+            if m.status not in ["member", "administrator", "creator"]:
+                return False
+        except:
+            return False
+    return True
+
+# ================= BUTTONS =================
+def join_buttons():
+    btn = []
+    for i, link in enumerate(CHANNEL_LINKS):
+        btn.append([InlineKeyboardButton(f"🔔 Join Channel {i+1}", url=link)])
+    btn.append([InlineKeyboardButton("✅ Verify Joined", callback_data="verify")])
+    return InlineKeyboardMarkup(btn)
+
 def main_menu():
-    kb = [["🚀 Invite"], ["💰 Balance"], ["🎁 Withdraw"]]
+    kb = [
+        ["💰 Balance", "👥 Refer Earn"],
+        ["🎁 Bonus", "💸 Withdraw"],
+        ["🆘 Support"],
+    ]
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
-def join_kb():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📢 Join Channel", url="https://t.me/Sumanearningtrickk")],
-        [InlineKeyboardButton("✅ I Joined", callback_data="verify")]
-    ])
-
-# ====== START ======
+# ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # हमेशा पहले join UI दिखाओ (ऊपर inline)
+    user_id = update.effective_user.id
+    uid = str(user_id)
+
+    # 🔒 hide old keyboard
+    await update.message.reply_text("⏳ Checking...", reply_markup=ReplyKeyboardRemove())
+
+    # 🔥 FORCE JOIN
+    if not await is_joined(context.bot, user_id):
+        await update.message.reply_text(
+            "🔒 Access Restricted\n\nJoin all channels👇 then click Verify",
+            reply_markup=join_buttons(),
+        )
+        return
+
+    # user create
+    if uid not in users:
+        users[uid] = {"balance": 0, "refs": []}
+
+        # referral
+        if context.args:
+            ref = context.args[0]
+            if ref != uid and ref in users:
+                if uid not in users[ref]["refs"]:
+                    users[ref]["balance"] += 1
+                    users[ref]["refs"].append(uid)
+
+    save_users(users)
+
     await update.message.reply_text(
-        "⚠️ पहले चैनल जॉइन करो, फिर Verify दबाओ:",
-        reply_markup=join_kb()
+        "🎉 Welcome!",
+        reply_markup=main_menu(),
     )
 
-# ====== VERIFY (simple/manual) ======
+# ================= VERIFY =================
 async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
-    uid = str(q.from_user.id)
+    user_id = q.from_user.id
 
-    # user create + referral
-    if uid not in users:
-        users[uid] = {"balance": 0, "ref": 0}
+    if await is_joined(context.bot, user_id):
+        await q.message.reply_text(
+            "✅ Joined Successfully!",
+            reply_markup=main_menu(),
+        )
+    else:
+        await q.message.reply_text(
+            "❌ Join sab channels!",
+            reply_markup=join_buttons(),
+        )
 
-        if context.args:
-            ref = context.args[0]
-            if ref != uid and ref in users:
-                users[ref]["balance"] += 1
-                users[ref]["ref"] += 1
-
-    save_users(users)
-
-    # नीचे menu (reply keyboard)
-    await q.message.reply_text(
-        "✅ Verified! अब नीचे से options use करो 👇",
-        reply_markup=main_menu()
-    )
-
-# ====== BUTTON HANDLER ======
-async def handle_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ================= MENU =================
+async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     uid = str(update.effective_user.id)
 
-    if text == "🚀 Invite":
-        bot = (await context.bot.get_me()).username
-        link = f"https://t.me/{bot}?start={uid}"
+    if uid not in users:
+        users[uid] = {"balance": 0, "refs": []}
+
+    # balance
+    if text == "💰 Balance":
+        await update.message.reply_text(f"💰 {users[uid]['balance']} coins")
+
+    # refer
+    elif text == "👥 Refer Earn":
+        link = f"https://t.me/{context.bot.username}?start={uid}"
         await update.message.reply_text(
-            f"🔗 Your Link:\n{link}\n\n1 referral = 1 coin"
+            f"👥 Refer & Earn\n\n1 Refer = 1 Coin\n3 Refer = 1 Code 🎁\n\n{link}"
         )
 
-    elif text == "💰 Balance":
-        bal = users.get(uid, {}).get("balance", 0)
-        await update.message.reply_text(f"💰 Balance: {bal} coins")
+    # bonus
+    elif text == "🎁 Bonus":
+        await update.message.reply_text("🎁 Coming soon")
 
-    elif text == "🎁 Withdraw":
-        bal = users.get(uid, {}).get("balance", 0)
+    # withdraw
+    elif text == "💸 Withdraw":
+        if users[uid]["balance"] >= 3:
+            if codes:
+                code = codes.pop(0)
+                save_codes(codes)
+                users[uid]["balance"] -= 3
+                save_users(users)
+                await update.message.reply_text(f"🎁 Code:\n{code}")
+            else:
+                await update.message.reply_text("❌ No codes")
+        else:
+            await update.message.reply_text("❌ Need 3 coins")
 
-        if bal < 3:
-            await update.message.reply_text("❌ Minimum 3 coins required")
-            return
+    # support
+    elif text == "🆘 Support":
+        await update.message.reply_text(f"📞 {SUPPORT}")
 
-        if not codes:
-            await update.message.reply_text("⚠️ Codes out of stock")
-            return
-
-        code = codes.pop(0)
-        users[uid]["balance"] -= 3
-
-        save_users(users)
-        save_codes(codes)
-
-        await update.message.reply_text(f"🎉 Your Code:\n{code}")
-
-# ====== ADMIN ======
-async def add_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ================= ADMIN =================
+async def addcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
+    code = " ".join(context.args)
+    codes.append(code)
+    save_codes(codes)
+    await update.message.reply_text("✅ Code added")
 
-    try:
-        c = context.args[0]
-        codes.append(c)
-        save_codes(codes)
-        await update.message.reply_text("✅ Code added")
-    except:
-        await update.message.reply_text("Use: /addcode CODE123")
+# ================= RUN =================
+app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-# ====== RUN ======
-def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("addcode", addcode))
+app.add_handler(CallbackQueryHandler(verify, pattern="verify"))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu))
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("addcode", add_code))
-    app.add_handler(CallbackQueryHandler(verify, pattern="verify"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_msg))
-
-    print("🚀 Bot Running...")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+app.run_polling()
