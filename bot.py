@@ -34,8 +34,7 @@ def keep_alive():
     t.start()
 
 # ================= CONFIG =================
-# Token ko Render ke 'Environment Variables' mein 'BOT_TOKEN' naam se save karein
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8653750221:AAFT-Yt-EaW-8tN1wl6MlRpZELtc4OcqxfY")
+BOT_TOKEN = "8653750221:AAFT-Yt-EaW-8tN1wl6MlRpZELtc4OcqxfY"
 
 CHANNELS = ["@Sumanearningtrickk", "@PaisaBachaoDealssss", "@EarnBazaarrr"]
 CHANNEL_LINKS = [
@@ -101,7 +100,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Checking...", reply_markup=ReplyKeyboardRemove())
 
     if not await is_joined(context.bot, user_id):
-        await update.message.reply_text("🔒 Access Restricted\n\nJoin all channels👇", reply_markup=join_buttons())
+        await update.message.reply_text("🔒 Access Restricted\n\nJoin all channels👇 then click Verify", reply_markup=join_buttons())
         return
 
     if uid not in users:
@@ -113,7 +112,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 users[ref]["refs"].append(uid)
     
     save_users(users)
-    await update.message.reply_text("🎉 Welcome!", reply_markup=main_menu())
+    # --- UPDATED WELCOME MESSAGE ---
+    await update.message.reply_text(
+        "🎉 Welcome to Myntra Free Code Bot\nInvite karo aur free code pao!", 
+        reply_markup=main_menu()
+    )
 
 async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -130,20 +133,30 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "💰 Balance":
         await update.message.reply_text(f"💰 {users[uid]['balance']} coins")
+        
     elif text == "👥 Refer Earn":
         link = f"https://t.me/{context.bot.username}?start={uid}"
-        await update.message.reply_text(f"👥 Refer & Earn\n\n1 Refer = 1 Coin\n\n{link}")
+        # --- UPDATED REFER MESSAGE ---
+        await update.message.reply_text(
+            f"👥 Refer & Earn\n\n"
+            f"🔥 1 Refer = 1 Coin\n"
+            f"🎁 3 Refer = 1 Myntra Code\n\n"
+            f"🔗 Link: {link}"
+        )
+        
     elif text == "🎁 Bonus":
         await update.message.reply_text("🎁 Coming soon")
+        
     elif text == "💸 Withdraw":
         if users[uid]["balance"] >= 3 and codes:
             code = codes.pop(0)
             users[uid]["balance"] -= 3
             save_codes(codes)
             save_users(users)
-            await update.message.reply_text(f"🎁 Code:\n{code}")
+            await update.message.reply_text(f"🎁 Your Myntra Code:\n\n`{code}`", parse_mode="Markdown")
         else:
-            await update.message.reply_text("❌ Not enough coins or no codes.")
+            await update.message.reply_text("❌ Need 3 coins or No codes available!")
+            
     elif text == "🆘 Support":
         await update.message.reply_text(f"📞 Support: {SUPPORT}")
 
@@ -153,14 +166,12 @@ async def addcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if code:
             codes.append(code)
             save_codes(codes)
-            await update.message.reply_text("✅ Code added")
+            await update.message.reply_text("✅ Code added successfully")
 
 # ================= RUN =================
 def main():
-    # Application build
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("addcode", addcode))
     application.add_handler(CallbackQueryHandler(verify, pattern="verify"))
