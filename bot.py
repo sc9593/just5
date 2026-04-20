@@ -206,11 +206,18 @@ async def addcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Code added")
 
 # ================= RUN =================
-app = ApplicationBuilder().token(BOT_TOKEN).build()
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("addcode", addcode))
-app.add_handler(CallbackQueryHandler(verify, pattern="verify"))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("addcode", addcode))
+    app.add_handler(CommandHandler("verify", verify))
+    app.add_handler(CommandHandler(CallbackQueryHandler(verify, pattern="verify")))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu))
 
-app.run_polling()
+    print("Bot is starting...")
+    app.run_polling()
+
+if __name__ == '__main__':
+    keep_alive()  # Ye Flask server start karega (Step 1 wala code zarur upar dal dena)
+    main()        # Ye bot start karega
