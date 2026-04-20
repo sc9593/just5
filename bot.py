@@ -18,22 +18,24 @@ from telegram.ext import (
     filters,
 )
 
-# ================= SERVER =================
+# ================= FAKE SERVER FOR RENDER =================
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot Running"
+    return "Bot is running!"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
-    Thread(target=run).start()
+    t = Thread(target=run)
+    t.start()
 
 # ================= CONFIG =================
-BOT_TOKEN = os.environ.get("8653750221:AAFT-Yt-EaW-8tN1wl6MlRpZELtc4OcqxfY")
+# Token ko Render ke 'Environment Variables' mein 'BOT_TOKEN' naam se save karein
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8653750221:AAFT-Yt-EaW-8tN1wl6MlRpZELtc4OcqxfY")
 
 CHANNELS = ["@Sumanearningtrickk", "@PaisaBachaoDealssss", "@EarnBazaarrr"]
 CHANNEL_LINKS = [
@@ -44,11 +46,10 @@ CHANNEL_LINKS = [
 
 ADMIN_ID = 7132741918
 SUPPORT = "@BOYSPROOF"
-
 DATA_FILE = "users.json"
 CODES_FILE = "codes.txt"
 
-# ================= DATA =================
+# ================= DATA HELPERS =================
 def load_users():
     try:
         with open(DATA_FILE, "r") as f:
@@ -74,7 +75,7 @@ def save_codes(c):
 users = load_users()
 codes = load_codes()
 
-# ================= JOIN CHECK =================
+# ================= LOGIC =================
 async def is_joined(bot, user_id):
     for ch in CHANNELS:
         try:
@@ -91,83 +92,61 @@ def join_buttons():
     return InlineKeyboardMarkup(btn)
 
 def main_menu():
-    kb = [
-        ["💰 Balance", "👥 Refer Earn"],
-        ["🎁 Bonus", "💸 Withdraw"],
-        ["🆘 Support"]
-    ]
+    kb = [["💰 Balance", "👥 Refer Earn"], ["🎁 Bonus", "💸 Withdraw"], ["🆘 Support"]]
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
-# ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     uid = str(user_id)
-
     await update.message.reply_text("⏳ Checking...", reply_markup=ReplyKeyboardRemove())
 
     if not await is_joined(context.bot, user_id):
-        await update.message.reply_text("🔒 Join all channels first 👇", reply_markup=join_buttons())
+        await update.message.reply_text("🔒 Access Restricted\n\nJoin all channels👇", reply_markup=join_buttons())
         return
 
     if uid not in users:
         users[uid] = {"balance": 0, "refs": []}
-
         if context.args:
             ref = context.args[0]
             if ref != uid and ref in users and uid not in users[ref]["refs"]:
                 users[ref]["balance"] += 1
                 users[ref]["refs"].append(uid)
-
+    
     save_users(users)
+    await update.message.reply_text("🎉 Welcome!", reply_markup=main_menu())
 
-    await update.message.reply_text(
-        "🎉 Welcome!\nInvite karo aur free Myntra code pao 🔥",
-        reply_markup=main_menu()
-    )
-
-# ================= VERIFY =================
 async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-
     if await is_joined(context.bot, q.from_user.id):
         await q.message.reply_text("✅ Joined Successfully!", reply_markup=main_menu())
     else:
-        await q.message.reply_text("❌ Pehle sab channels join karo!", reply_markup=join_buttons())
+        await q.message.reply_text("❌ Join sab channels!", reply_markup=join_buttons())
 
-# ================= MENU =================
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     uid = str(update.effective_user.id)
-
-    if uid not in users:
-        users[uid] = {"balance": 0, "refs": []}
+    if uid not in users: users[uid] = {"balance": 0, "refs": []}
 
     if text == "💰 Balance":
         await update.message.reply_text(f"💰 {users[uid]['balance']} coins")
-
     elif text == "👥 Refer Earn":
         link = f"https://t.me/{context.bot.username}?start={uid}"
-        msg = f"👥 Refer & Earn\n\n1 Refer = 1 Coin\n3 Refer = 1 Myntra Code 🎁\n\n{link}"
-        await update.message.reply_text(msg)
-
+        await update.message.reply_text(f"👥 Refer & Earn\n\n1 Refer = 1 Coin\n\n{link}")
     elif text == "🎁 Bonus":
         await update.message.reply_text("🎁 Coming soon")
-
     elif text == "💸 Withdraw":
         if users[uid]["balance"] >= 3 and codes:
             code = codes.pop(0)
             users[uid]["balance"] -= 3
             save_codes(codes)
             save_users(users)
-            await update.message.reply_text(f"🎁 Your Code:\n{code}")
+            await update.message.reply_text(f"🎁 Code:\n{code}")
         else:
             await update.message.reply_text("❌ Not enough coins or no codes.")
-
     elif text == "🆘 Support":
         await update.message.reply_text(f"📞 Support: {SUPPORT}")
 
-# ================= ADMIN =================
 async def addcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id == ADMIN_ID:
         code = " ".join(context.args)
@@ -178,15 +157,17 @@ async def addcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= RUN =================
 def main():
-    app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
+    # Application build
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    app_bot.add_handler(CommandHandler("start", start))
-    app_bot.add_handler(CommandHandler("addcode", addcode))
-    app_bot.add_handler(CallbackQueryHandler(verify, pattern="verify"))
-    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu))
+    # Handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("addcode", addcode))
+    application.add_handler(CallbackQueryHandler(verify, pattern="verify"))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu))
 
-    print("Bot running...")
-    app_bot.run_polling()
+    print("Bot is starting...")
+    application.run_polling()
 
 if __name__ == '__main__':
     keep_alive()
