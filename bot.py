@@ -128,28 +128,29 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = str(update.effective_user.id)
     if uid not in users: users[uid] = {"balance": 0, "refs": []}
 
-    if text == "💰 Balance":
-        await update.message.reply_text(f"💰 {users[uid]['balance']} coins")
+if text == "💰 Balance":
+    await update.message.reply_text(f"💰 {users[uid]['balance']} coins")
+
 elif text == "👥 Refer Earn":
-        link = "https://t.me/" + context.bot.username + "?start=" + uid
-
-        msg = "Refer & Earn\n\n1 Refer = 1 Coin\n3 Refer = 1 Myntra Code\n\n" + link
-
-        await update.message.reply_text(msg)
+    link = "https://t.me/" + context.bot.username + "?start=" + uid
+    msg = "Refer & Earn\n\n1 Refer = 1 Coin\n3 Refer = 1 Myntra Code\n\n" + link
+    await update.message.reply_text(msg)
 
 elif text == "🎁 Bonus":
     await update.message.reply_text("🎁 Coming soon")
-    elif text == "💸 Withdraw":
-        if users[uid]["balance"] >= 3 and codes:
-            code = codes.pop(0)
-            users[uid]["balance"] -= 3
-            save_codes(codes)
-            save_users(users)
-            await update.message.reply_text(f"🎁 Code:\n{code}")
-        else:
-            await update.message.reply_text("❌ Not enough coins or no codes.")
-    elif text == "🆘 Support":
-        await update.message.reply_text(f"📞 Support: {SUPPORT}")
+
+elif text == "💸 Withdraw":
+    if users[uid]["balance"] >= 3 and codes:
+        code = codes.pop(0)
+        users[uid]["balance"] -= 3
+        save_codes(codes)
+        save_users(users)
+        await update.message.reply_text(f"🎁 Code:\n{code}")
+    else:
+        await update.message.reply_text("❌ Not enough coins or no codes.")
+
+elif text == "🆘 Support":
+    await update.message.reply_text(f"📞 Support: {SUPPORT}")
 
 async def addcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id == ADMIN_ID:
