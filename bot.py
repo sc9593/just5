@@ -28,7 +28,6 @@ def run(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
 def keep_alive(): Thread(target=run).start()
 
 # ================= CONFIG =================
-# Nayi API Key Update Kar Di Gayi Hai
 BOT_TOKEN = "8653750221:AAHc-BZI3lXNRyJ3xOa9SGuFOK_3uJcqPco"
 ADMIN_ID = 7132741918
 SUPPORT = "@BOYSPROOF"
@@ -71,8 +70,7 @@ async def is_joined(bot, user_id):
             m = await bot.get_chat_member(chat_id=ch, user_id=user_id)
             if m.status not in ["member", "administrator", "creator"]: 
                 return False
-        except Exception as e:
-            # Agar bot admin nahi hai toh return False
+        except Exception:
             return False
     return True
 
@@ -90,42 +88,54 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = str(user_id)
     users = load_users()
     
-    # --- REFER LOGIC: Join check se pehle hi save kar lo ---
+    # === 100% FIXED REFERRAL LOGIC ===
     if uid not in users:
         users[uid] = {"balance": 0, "refs": []}
         
+        # Agar URL mein start argument hai (yani kisi ke link se aaya hai)
         if context.args:
             ref_id = str(context.args[0])
+            # Check: Referrer exist karta ho aur khud ko refer na kar raha ho
             if ref_id in users and ref_id != uid:
                 users[ref_id]["balance"] += 1
-                if "refs" not in users[ref_id]: users[ref_id]["refs"] = []
+                if "refs" not in users[ref_id]: 
+                    users[ref_id]["refs"] = []
                 if uid not in users[ref_id]["refs"]:
                     users[ref_id]["refs"].append(uid)
+                    
+                    # Referrer ko notification bhejo
                     try:
-                        await context.bot.send_message(chat_id=int(ref_id), text="🔔 **Naya Refer!**\nEk user ne aapke link se start kiya. +1 coin!")
-                    except: pass
-        save_users(users)
+                        await context.bot.send_message(
+                            chat_id=int(ref_id), 
+                            text="🔔 **Naya Refer!**\nEk naye user ne aapke link se start kiya hai. Aapko **+1 coin** mil gaya!",
+                            parse_mode="Markdown"
+                        )
+                    except Exception as e: 
+                        print(f"Message send error: {e}")
+        
+        save_users(users) # Data turant save karo
 
-    # --- JOIN CHECK ---
+    # === JOIN CHECK ===
     if not await is_joined(context.bot, user_id):
-        await update.message.reply_text("🔒 **Access Restricted**\n\nBot use karne ke liye saare channels join karein👇", reply_markup=join_buttons(), parse_mode="Markdown")
+        await update.message.reply_text(
+            "🔒 **Access Restricted**\n\nBot use karne ke liye saare channels join karein👇", 
+            reply_markup=join_buttons(), 
+            parse_mode="Markdown"
+        )
         return
 
     await update.message.reply_text("🎉 **Welcome to Myntra Free Code Bot**", reply_markup=main_menu(), parse_mode="Markdown")
 
-# YAHI FUNCTION PICHLE CODE MEIN MISSING THA JISSE BUTTON LOOP MEIN FASA THA
 async def verify_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     user_id = q.from_user.id
     
     if await is_joined(context.bot, user_id):
-        # Successful Verification
         await q.message.delete()
-        await q.message.reply_text("✅ **Verification Successful!**\nAapka swagat hai.", reply_markup=main_menu(), parse_mode="Markdown")
+        await context.bot.send_message(chat_id=user_id, text="✅ **Verification Successful!**\nAapka swagat hai.", reply_markup=main_menu(), parse_mode="Markdown")
     else:
-        # Failed Verification
-        await q.message.reply_text("❌ Aapne abhi tak saare channels join nahi kiye hain. Kripya check karein aur wapas Verify dabayein.")
+        await q.message.reply_text("❌ Aapne abhi tak saare channels join nahi kiye hain. Join karke wapas Verify dabayein.")
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
@@ -136,9 +146,9 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users[uid] = {"balance": 0, "refs": []}
         save_users(users)
 
-    # Security check menu access pe bhi
+    # Security: Har menu tap pe channel check
     if not await is_joined(context.bot, update.effective_user.id):
-        await update.message.reply_text("🔒 Access Restricted. Channel join karein.", reply_markup=join_buttons())
+        await update.message.reply_text("🔒 Access Restricted. Bot use karne ke liye saare channels join karein👇", reply_markup=join_buttons())
         return
 
     if text == "💰 Balance":
@@ -147,7 +157,7 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "👥 Refer Earn":
         bot_info = await context.bot.get_me()
         link = f"https://t.me/{bot_info.username}?start={uid}"
-        await update.message.reply_text(f"👥 **Refer & Earn**\n\n🔥 1 Refer = 1 Coin\n🎁 3 Refer = 1 Myntra Code\n\n🔗 Your Link: {link}", parse_mode="Markdown")
+        await update.message.reply_text(f"👥 **Refer & Earn**\n\n🔥 1 Refer = 1 Coin\n🎁 3 Refer = 1 Myntra Code\n\n🔗 Your Link: `{link}`", parse_mode="Markdown")
         
     elif text == "🎁 Bonus":
         btn = InlineKeyboardMarkup([[InlineKeyboardButton("🎁 Claim Bonus", url=AD_LINK)]])
@@ -162,7 +172,7 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ **Code limited over.**\nWait and withdrawal again after new stock.", parse_mode="Markdown")
             return
 
-        # Coin cut hoga aur code milega
+        # Coin Cut & Code Send
         my_code = codes.pop(0)
         users[uid]["balance"] -= 3
         save_codes(codes)
@@ -206,7 +216,6 @@ def main():
     application.add_handler(CommandHandler("addcode", addcode))
     application.add_handler(CommandHandler("broadcast", broadcast))
     
-    # YAHAN VERIFY KA HANDLER FIX KIYA GAYA HAI
     application.add_handler(CallbackQueryHandler(verify_button, pattern="verify"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu))
     
