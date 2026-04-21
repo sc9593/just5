@@ -1,7 +1,6 @@
 import os
+import json
 import asyncio
-import firebase_admin
-from firebase_admin import credentials, db
 from flask import Flask
 from threading import Thread
 from telegram import (
@@ -20,20 +19,7 @@ from telegram.ext import (
     filters,
 )
 
-# ================= FIREBASE INITIALIZATION =================
-try:
-    if not firebase_admin._apps:
-        cred = credentials.Certificate("firebase-key.json")
-        firebase_admin.initialize_app(cred, {
-            'databaseURL': 'https://myntrabot-f4498-default-rtdb.firebaseio.com/'
-        })
-    users_ref = db.reference('users')
-    codes_ref = db.reference('codes')
-    print("✅ Firebase Connected!")
-except Exception as e:
-    print(f"❌ Firebase Error: {e}")
-
-# ================= RENDER SERVER =================
+# ================= FAKE SERVER FOR RENDER =================
 app = Flask('')
 @app.route('/')
 def home(): return "Bot is running!"
@@ -54,6 +40,34 @@ CHANNEL_LINKS = [
     "https://t.me/EarnBazaarrr",
 ]
 
+DATA_FILE = "users.json"
+CODES_FILE = "codes.txt"
+
+# ================= DATA HELPERS =================
+def load_users():
+    try:
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, "r") as f:
+                return json.load(f)
+        return {}
+    except: return {}
+
+def save_users(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f)
+
+def load_codes():
+    try:
+        if os.path.exists(CODES_FILE):
+            with open(CODES_FILE, "r") as f:
+                return [c.strip() for c in f.readlines() if c.strip()]
+        return []
+    except: return []
+
+def save_codes(c):
+    with open(CODES_FILE, "w") as f:
+        f.write("\n".join(c))
+
 # ================= LOGIC =================
 async def is_joined(bot, user_id):
     if user_id == ADMIN_ID: return True
@@ -64,7 +78,7 @@ async def is_joined(bot, user_id):
                 return False
         except Exception as e:
             print(f"Error checking {ch}: {e}")
-            continue # Agar error aaye toh skip karo taki bot stuck na ho
+            continue # Agar error aaye toh skip karo
     return True
 
 def join_buttons():
@@ -79,30 +93,24 @@ def main_menu():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     uid = str(user_id)
-    await update.message.reply_text("⏳ Checking...", reply_markup=ReplyKeyboardRemove())
-
+    
+    # "Checking..." hata kar seedha check logic
     if not await is_joined(context.bot, user_id):
-        await update.message.reply_text("🔒 Access Restricted\n\nJoin all channels👇", reply_markup=join_buttons())
+        await update.message.reply_text("🔒 **Access Restricted**\n\nBot use karne ke liye hamare channels join karein👇", reply_markup=join_buttons(), parse_mode="Markdown")
         return
 
-    user_data = users_ref.child(uid).get()
-    if not user_data:
-        user_data = {"balance": 0, "refs": []}
+    users = load_users()
+    if uid not in users:
+        users[uid] = {"balance": 0, "refs": []}
         if context.args:
             ref_id = context.args[0]
-            if ref_id != uid:
-                ref_data = users_ref.child(ref_id).get()
-                if ref_data:
-                    old_refs = ref_data.get("refs", [])
-                    if uid not in old_refs:
-                        old_refs.append(uid)
-                        users_ref.child(ref_id).update({
-                            "balance": ref_data.get("balance", 0) + 1,
-                            "refs": old_refs
-                        })
-        users_ref.child(uid).set(user_data)
+            if ref_id != uid and ref_id in users:
+                if uid not in users[ref_id].get("refs", []):
+                    users[ref_id]["balance"] += 1
+                    users[ref_id]["refs"].append(uid)
+        save_users(users)
 
-    await update.message.reply_text("🎉 Welcome to Myntra Free Code Bot\nInvite karo aur free code pao!", reply_markup=main_menu())
+    await update.message.reply_text("🎉 **Welcome to Myntra Free Code Bot**\nInvite karo aur free code pao!", reply_markup=main_menu(), parse_mode="Markdown")
 
 async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -115,57 +123,58 @@ async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     uid = str(update.effective_user.id)
-    user = users_ref.child(uid).get()
-    if not user: user = {"balance": 0, "refs": []}
+    users = load_users()
+    if uid not in users: users[uid] = {"balance": 0, "refs": []}
 
     if text == "💰 Balance":
-        await update.message.reply_text(f"💰 Balance: {user.get('balance', 0)} coins")
+        await update.message.reply_text(f"💰 Balance: {users[uid]['balance']} coins")
         
     elif text == "👥 Refer Earn":
         link = f"https://t.me/{context.bot.username}?start={uid}"
-        await update.message.reply_text(f"👥 Refer & Earn\n\n🔥 1 Refer = 1 Coin\n🎁 3 Refer = 1 Myntra Code\n\n🔗 Link: {link}")
+        await update.message.reply_text(f"👥 **Refer & Earn**\n\n🔥 1 Refer = 1 Coin\n🎁 3 Refer = 1 Myntra Code\n\n🔗 Link: {link}", parse_mode="Markdown")
         
     elif text == "🎁 Bonus":
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🎁 Claim Bonus (Watch Ad)", url=AD_LINK)]])
         await update.message.reply_text("🔥 **Daily Bonus!**\n\nWatch ad to get bonus.", reply_markup=keyboard, parse_mode="Markdown")
         
     elif text == "💸 Withdraw":
-        stock = codes_ref.get()
-        if user.get("balance", 0) < 3:
+        codes = load_codes()
+        if users[uid]["balance"] < 3:
             await update.message.reply_text("❌ Minimum 3 coins required!")
             return
-        if not stock:
+        if not codes:
             await update.message.reply_text("❌ Code limited over. Wait and withdrawal again after new stock.")
             return
 
-        code = stock.pop(0)
-        codes_ref.set(stock)
-        users_ref.child(uid).update({"balance": user["balance"] - 3})
+        code = codes.pop(0)
+        users[uid]["balance"] -= 3
+        save_codes(codes)
+        save_users(users)
 
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Open Myntra Code", url=AD_LINK)]])
-        await update.message.reply_text(f"💸 **Withdraw Success!**\n\n🎁 Your Code: `{code}`\n\n3 coins cut ho gaye hain.", reply_markup=keyboard, parse_mode="Markdown")
+        await update.message.reply_text(f"💸 **Withdraw Success!**\n\n🎁 Your Code: `{code}`\n\nVerification ke liye button dabayein.", reply_markup=keyboard, parse_mode="Markdown")
             
     elif text == "🆘 Support":
         await update.message.reply_text(f"📞 Support: {SUPPORT}")
 
-# ================= ADMIN =================
+# ================= ADMIN COMMANDS =================
 async def addcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     c = " ".join(context.args)
     if c:
-        s = codes_ref.get() or []
+        s = load_codes()
         s.append(c)
-        codes_ref.set(s)
+        save_codes(s)
         await update.message.reply_text(f"✅ Code added! Total: {len(s)}")
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     txt = " ".join(context.args)
     if not txt: return
-    all_u = users_ref.get() or {}
-    await update.message.reply_text("📢 Sending...")
+    u_list = load_users()
+    await update.message.reply_text(f"📢 Sending to {len(u_list)} users...")
     count = 0
-    for u in all_u:
+    for u in u_list:
         try:
             await context.bot.send_message(chat_id=int(u), text=txt)
             count += 1
@@ -185,4 +194,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-                    
+    
