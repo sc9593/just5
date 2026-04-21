@@ -48,7 +48,7 @@ def keep_alive():
     t.start()
 
 # ================= CONFIG =================
-BOT_TOKEN = "8653750221:AAFT-Yt-EaW-8tN1wl6MlRpZELtc4OcqxfY"
+BOT_TOKEN = "8653750221:AAHc-BZI3lXNRyJ3xOa9SGuFOK_3uJcqPco"
 ADMIN_ID = 7132741918
 SUPPORT = "@BOYSPROOF"
 AD_LINK = "https://omg10.com/4/10903029" 
