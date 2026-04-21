@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 from flask import Flask
 from threading import Thread
 from telegram import (
@@ -37,8 +38,6 @@ def keep_alive():
 BOT_TOKEN = "8653750221:AAFT-Yt-EaW-8tN1wl6MlRpZELtc4OcqxfY"
 ADMIN_ID = 7132741918
 SUPPORT = "@BOYSPROOF"
-
-# --- MONETAG DIRECT LINK SET ---
 AD_LINK = "https://omg10.com/4/10903029" 
 
 CHANNELS = ["@Sumanearningtrickk", "@PaisaBachaoDealssss", "@EarnBazaarrr"]
@@ -54,8 +53,10 @@ CODES_FILE = "codes.txt"
 # ================= DATA HELPERS =================
 def load_users():
     try:
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, "r") as f:
+                return json.load(f)
+        return {}
     except:
         return {}
 
@@ -65,17 +66,17 @@ def save_users(data):
 
 def load_codes():
     try:
-        with open(CODES_FILE, "r") as f:
-            return f.read().splitlines()
+        if os.path.exists(CODES_FILE):
+            with open(CODES_FILE, "r") as f:
+                content = f.read().splitlines()
+                return [c for c in content if c.strip()]
+        return []
     except:
         return []
 
 def save_codes(c):
     with open(CODES_FILE, "w") as f:
         f.write("\n".join(c))
-
-users = load_users()
-codes = load_codes()
 
 # ================= LOGIC =================
 async def is_joined(bot, user_id):
@@ -100,10 +101,12 @@ def main_menu():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     uid = str(user_id)
+    
+    users = load_users()
     await update.message.reply_text("⏳ Checking...", reply_markup=ReplyKeyboardRemove())
 
     if not await is_joined(context.bot, user_id):
-        await update.message.reply_text("🔒 Access Restricted\n\nJoin all channels👇 then click Verify", reply_markup=join_buttons())
+        await update.message.reply_text("🔒 Access Restricted\n\nJoin all channels👇", reply_markup=join_buttons())
         return
 
     if uid not in users:
@@ -131,71 +134,88 @@ async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     uid = str(update.effective_user.id)
-    if uid not in users: users[uid] = {"balance": 0, "refs": []}
+    
+    users = load_users()
+    if uid not in users: 
+        users[uid] = {"balance": 0, "refs": []}
 
     if text == "💰 Balance":
         await update.message.reply_text(f"💰 Your Balance: {users[uid]['balance']} coins")
         
     elif text == "👥 Refer Earn":
         link = f"https://t.me/{context.bot.username}?start={uid}"
-        await update.message.reply_text(
-            f"👥 Refer & Earn\n\n"
-            f"🔥 1 Refer = 1 Coin\n"
-            f"🎁 3 Refer = 1 Myntra Code\n\n"
-            f"🔗 Link: {link}"
-        )
+        await update.message.reply_text(f"👥 Refer & Earn\n\n🔥 1 Refer = 1 Coin\n🎁 3 Refer = 1 Myntra Code\n\n🔗 Link: {link}")
         
     elif text == "🎁 Bonus":
-        # Bonus section with Ad link
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🎁 Claim Bonus (Watch Ad)", url=AD_LINK)]])
-        await update.message.reply_text(
-            "🔥 **Daily Bonus!**\n\nNiche diye gaye button par click karke 10 second ad dekhein, aapka bonus credit ho jayega.",
-            reply_markup=keyboard,
-            parse_mode="Markdown"
-        )
+        await update.message.reply_text("🔥 **Daily Bonus!**\n\nWatch ad to get bonus.", reply_markup=keyboard, parse_mode="Markdown")
         
     elif text == "💸 Withdraw":
-        if users[uid]["balance"] >= 3:
-            if codes:
-                # Withdraw button disguised as Ad verification
-                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Verify & Get Code (Click Here)", url=AD_LINK)]])
-                
-                # Hum code tabhi show karenge jab user click kare (User experience ke liye message change kiya)
-                await update.message.reply_text(
-                    "💸 **Withdraw Process**\n\nMyntra code lene ke liye niche button par click karke verification poora karein:",
-                    reply_markup=keyboard,
-                    parse_mode="Markdown"
-                )
-                
-                # Actual code send karna (Wait ke bina logic thoda alag hota hai, par ye user ko ad par bhej dega)
-                code = codes.pop(0)
-                users[uid]["balance"] -= 3
-                save_codes(codes)
-                save_users(users)
-                await update.message.reply_text(f"🎁 Your Code is processing... Check below in 10s:\n\n`{code}`", parse_mode="Markdown")
-            else:
-                await update.message.reply_text("❌ No codes available right now!")
-        else:
-            await update.message.reply_text("❌ Minimum 3 coins required for Withdraw!")
+        codes = load_codes()
+        if users[uid]["balance"] < 3:
+            await update.message.reply_text("❌ Minimum 3 coins required!")
+            return
+        if not codes:
+            await update.message.reply_text("❌ Code limited over. Wait and withdrawal again after new stock.")
+            return
+
+        code_to_give = codes.pop(0)
+        users[uid]["balance"] -= 3
+        save_users(users)
+        save_codes(codes)
+
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Open Myntra Code", url=AD_LINK)]])
+        await update.message.reply_text(
+            f"💸 **Withdraw Success!**\n\n🎁 Your Code: `{code_to_give}`\n\nVerification ke liye button dabayein.",
+            reply_markup=keyboard, parse_mode="Markdown"
+        )
             
     elif text == "🆘 Support":
         await update.message.reply_text(f"📞 Support: {SUPPORT}")
 
+# ================= ADMIN COMMANDS =================
+
 async def addcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id == ADMIN_ID:
-        code = " ".join(context.args)
-        if code:
-            codes.append(code)
-            save_codes(codes)
-            await update.message.reply_text("✅ Myntra Code added!")
+    if update.effective_user.id != ADMIN_ID: return
+    new_code = " ".join(context.args)
+    if new_code:
+        current_codes = load_codes()
+        current_codes.append(new_code)
+        save_codes(current_codes)
+        await update.message.reply_text(f"✅ Code added! Total stock: {len(current_codes)}")
+
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    msg_text = " ".join(context.args)
+    if not msg_text:
+        await update.message.reply_text("Usage: /broadcast [Your Message]")
+        return
+
+    users = load_users()
+    count = 0
+    await update.message.reply_text(f"📢 Sending message to {len(users)} users...")
+
+    for uid in users:
+        try:
+            await context.bot.send_message(chat_id=int(uid), text=msg_text)
+            count += 1
+            await asyncio.sleep(0.05) # Rate limit se bachne ke liye
+        except:
+            continue
+    
+    await update.message.reply_text(f"✅ Broadcast Done! Sent to {count} users.")
 
 # ================= RUN =================
 def main():
     application = ApplicationBuilder().token(BOT_TOKEN).build()
+    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("addcode", addcode))
+    application.add_handler(CommandHandler("broadcast", broadcast)) # Naya Command
+    
     application.add_handler(CallbackQueryHandler(verify, pattern="verify"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu))
+    
     print("Bot is starting...")
     application.run_polling()
 
