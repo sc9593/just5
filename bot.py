@@ -1,6 +1,8 @@
 import os
 import json
 import asyncio
+import firebase_admin
+from firebase_admin import credentials, db
 from flask import Flask
 from threading import Thread
 from telegram import (
@@ -18,6 +20,17 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+
+# ================= FIREBASE INITIALIZATION =================
+# Dhyan rahe: firebase-key.json GitHub par honi chahiye
+if not firebase_admin._apps:
+    cred = credentials.Certificate("firebase-key.json")
+    firebase_admin.initialize_app(cred, {
+        'databaseURL': 'https://myntrabot-f4498-default-rtdb.firebaseio.com/'
+    })
+
+users_ref = db.reference('users')
+codes_ref = db.reference('codes')
 
 # ================= FAKE SERVER FOR RENDER =================
 app = Flask('')
@@ -40,43 +53,13 @@ ADMIN_ID = 7132741918
 SUPPORT = "@BOYSPROOF"
 AD_LINK = "https://omg10.com/4/10903029" 
 
+# Aapka sahi channel list
 CHANNELS = ["@Sumanearningtrickk", "@PaisaBachaoDealssss", "@EarnBazaarrr"]
 CHANNEL_LINKS = [
     "https://t.me/Sumanearningtrickk",
     "https://t.me/PaisaBachaoDealssss",
     "https://t.me/EarnBazaarrr",
 ]
-
-DATA_FILE = "users.json"
-CODES_FILE = "codes.txt"
-
-# ================= DATA HELPERS =================
-def load_users():
-    try:
-        if os.path.exists(DATA_FILE):
-            with open(DATA_FILE, "r") as f:
-                return json.load(f)
-        return {}
-    except:
-        return {}
-
-def save_users(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f)
-
-def load_codes():
-    try:
-        if os.path.exists(CODES_FILE):
-            with open(CODES_FILE, "r") as f:
-                content = f.read().splitlines()
-                return [c for c in content if c.strip()]
-        return []
-    except:
-        return []
-
-def save_codes(c):
-    with open(CODES_FILE, "w") as f:
-        f.write("\n".join(c))
 
 # ================= LOGIC =================
 async def is_joined(bot, user_id):
@@ -102,22 +85,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     uid = str(user_id)
     
-    users = load_users()
     await update.message.reply_text("⏳ Checking...", reply_markup=ReplyKeyboardRemove())
 
     if not await is_joined(context.bot, user_id):
         await update.message.reply_text("🔒 Access Restricted\n\nJoin all channels👇", reply_markup=join_buttons())
         return
 
-    if uid not in users:
-        users[uid] = {"balance": 0, "refs": []}
+    user_data = users_ref.child(uid).get()
+    if not user_data:
+        user_data = {"balance": 0, "refs": []}
         if context.args:
-            ref = context.args[0]
-            if ref != uid and ref in users and uid not in users[ref]["refs"]:
-                users[ref]["balance"] += 1
-                users[ref]["refs"].append(uid)
-    
-    save_users(users)
+            ref_id = context.args[0]
+            referrer = users_ref.child(ref_id).get()
+            if referrer and ref_id != uid:
+                # Use .get() with default to prevent errors
+                old_bal = referrer.get("balance", 0)
+                old_refs = referrer.get("refs", [])
+                if uid not in old_refs:
+                    old_refs.append(uid)
+                    users_ref.child(ref_id).update({
+                        "balance": old_bal + 1,
+                        "refs": old_refs
+                    })
+        
+        users_ref.child(uid).set(user_data)
+
     await update.message.reply_text(
         "🎉 Welcome to Myntra Free Code Bot\nInvite karo aur free code pao!", 
         reply_markup=main_menu()
@@ -134,13 +126,12 @@ async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     uid = str(update.effective_user.id)
+    user = users_ref.child(uid).get()
     
-    users = load_users()
-    if uid not in users: 
-        users[uid] = {"balance": 0, "refs": []}
+    if not user: user = {"balance": 0, "refs": []}
 
     if text == "💰 Balance":
-        await update.message.reply_text(f"💰 Your Balance: {users[uid]['balance']} coins")
+        await update.message.reply_text(f"💰 Your Balance: {user.get('balance', 0)} coins")
         
     elif text == "👥 Refer Earn":
         link = f"https://t.me/{context.bot.username}?start={uid}"
@@ -151,18 +142,17 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔥 **Daily Bonus!**\n\nWatch ad to get bonus.", reply_markup=keyboard, parse_mode="Markdown")
         
     elif text == "💸 Withdraw":
-        codes = load_codes()
-        if users[uid]["balance"] < 3:
+        stock = codes_ref.get()
+        if user.get("balance", 0) < 3:
             await update.message.reply_text("❌ Minimum 3 coins required!")
             return
-        if not codes:
+        if not stock:
             await update.message.reply_text("❌ Code limited over. Wait and withdrawal again after new stock.")
             return
 
-        code_to_give = codes.pop(0)
-        users[uid]["balance"] -= 3
-        save_users(users)
-        save_codes(codes)
+        code_to_give = stock.pop(0)
+        codes_ref.set(stock) 
+        users_ref.child(uid).update({"balance": user["balance"] - 3})
 
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Open Myntra Code", url=AD_LINK)]])
         await update.message.reply_text(
@@ -179,43 +169,43 @@ async def addcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     new_code = " ".join(context.args)
     if new_code:
-        current_codes = load_codes()
+        current_codes = codes_ref.get()
+        if not current_codes: current_codes = []
         current_codes.append(new_code)
-        save_codes(current_codes)
+        codes_ref.set(current_codes)
         await update.message.reply_text(f"✅ Code added! Total stock: {len(current_codes)}")
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     msg_text = " ".join(context.args)
     if not msg_text:
-        await update.message.reply_text("Usage: /broadcast [Your Message]")
+        await update.message.reply_text("Usage: /broadcast [Message]")
         return
 
-    users = load_users()
+    all_users = users_ref.get()
+    if not all_users: return
+    
     count = 0
-    await update.message.reply_text(f"📢 Sending message to {len(users)} users...")
+    await update.message.reply_text(f"📢 Sending broadcast...")
 
-    for uid in users:
+    for user_id in all_users:
         try:
-            await context.bot.send_message(chat_id=int(uid), text=msg_text)
+            await context.bot.send_message(chat_id=int(user_id), text=msg_text)
             count += 1
-            await asyncio.sleep(0.05) # Rate limit se bachne ke liye
+            await asyncio.sleep(0.05)
         except:
             continue
     
-    await update.message.reply_text(f"✅ Broadcast Done! Sent to {count} users.")
+    await update.message.reply_text(f"✅ Sent to {count} users.")
 
 # ================= RUN =================
 def main():
     application = ApplicationBuilder().token(BOT_TOKEN).build()
-    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("addcode", addcode))
-    application.add_handler(CommandHandler("broadcast", broadcast)) # Naya Command
-    
+    application.add_handler(CommandHandler("broadcast", broadcast))
     application.add_handler(CallbackQueryHandler(verify, pattern="verify"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu))
-    
     print("Bot is starting...")
     application.run_polling()
 
