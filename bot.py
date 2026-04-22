@@ -27,7 +27,7 @@ def home(): return "Bot is Live!"
 def run(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
 def keep_alive(): Thread(target=run).start()
 
-# ================= CONFIG =================
+# ================= CONFIG (STABLE COIN LOGIC) =================
 BOT_TOKEN = "8653750221:AAHc-BZI3lXNRyJ3xOa9SGuFOK_3uJcqPco"
 ADMIN_ID = 7132741918
 SUPPORT = "@BOYSPROOF"
@@ -38,6 +38,10 @@ CHANNEL_LINKS = ["https://t.me/Sumanearningtrickk", "https://t.me/PaisaBachaoDea
 
 DATA_FILE = "users.json"
 CODES_FILE = "codes.txt"
+
+# Yahan se aap kabhi bhi coin rules change kar sakte hain
+WITHDRAW_COST = 4
+REFER_REWARD = 1
 
 # ================= HELPERS =================
 def load_users():
@@ -88,32 +92,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = str(user_id)
     users = load_users()
     
-    # === 100% FIXED REFERRAL LOGIC ===
+    # === STRICT DUPLICATE REFERRAL CHECK ===
     if uid not in users:
-        users[uid] = {"balance": 0, "refs": []}
+        # Naya user create karte waqt 'referred_by' track karenge
+        users[uid] = {"balance": 0, "refs": [], "referred_by": None}
         
-        # Agar URL mein start argument hai (yani kisi ke link se aaya hai)
         if context.args:
             ref_id = str(context.args[0])
-            # Check: Referrer exist karta ho aur khud ko refer na kar raha ho
-            if ref_id in users and ref_id != uid:
-                users[ref_id]["balance"] += 1
+            # Check: Referrer exist karta ho, khud ko refer na kar raha ho, aur ye user pehle refer na hua ho
+            if ref_id in users and ref_id != uid and users[uid]["referred_by"] is None:
+                
+                users[uid]["referred_by"] = ref_id # Mark as permanently referred
+                users[ref_id]["balance"] += REFER_REWARD
+                
                 if "refs" not in users[ref_id]: 
                     users[ref_id]["refs"] = []
+                    
                 if uid not in users[ref_id]["refs"]:
                     users[ref_id]["refs"].append(uid)
                     
-                    # Referrer ko notification bhejo
                     try:
                         await context.bot.send_message(
                             chat_id=int(ref_id), 
-                            text="🔔 **Naya Refer!**\nEk naye user ne aapke link se start kiya hai. Aapko **+1 coin** mil gaya!",
+                            text=f"🔔 **Naya Refer!**\nEk naye user ne aapke link se start kiya hai. Aapko **+{REFER_REWARD} coin** mil gaya!",
                             parse_mode="Markdown"
                         )
                     except Exception as e: 
                         print(f"Message send error: {e}")
         
-        save_users(users) # Data turant save karo
+        save_users(users)
 
     # === JOIN CHECK ===
     if not await is_joined(context.bot, user_id):
@@ -142,11 +149,11 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = str(update.effective_user.id)
     users = load_users()
     
+    # Safety check
     if uid not in users: 
-        users[uid] = {"balance": 0, "refs": []}
+        users[uid] = {"balance": 0, "refs": [], "referred_by": None}
         save_users(users)
 
-    # Security: Har menu tap pe channel check
     if not await is_joined(context.bot, update.effective_user.id):
         await update.message.reply_text("🔒 Access Restricted. Bot use karne ke liye saare channels join karein👇", reply_markup=join_buttons())
         return
@@ -157,7 +164,7 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "👥 Refer Earn":
         bot_info = await context.bot.get_me()
         link = f"https://t.me/{bot_info.username}?start={uid}"
-        await update.message.reply_text(f"👥 **Refer & Earn**\n\n🔥 1 Refer = 1 Coin\n🎁 4 Refer = 1 Myntra Code\n\n🔗 Your Link: `{link}`", parse_mode="Markdown")
+        await update.message.reply_text(f"👥 **Refer & Earn**\n\n🔥 1 Refer = {REFER_REWARD} Coin\n🎁 {WITHDRAW_COST} Refer = 1 Myntra Code\n\n🔗 Your Link: `{link}`", parse_mode="Markdown")
         
     elif text == "🎁 Bonus":
         btn = InlineKeyboardMarkup([[InlineKeyboardButton("🎁 Claim Bonus", url=AD_LINK)]])
@@ -165,8 +172,8 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     elif text == "💸 Withdraw":
         codes = load_codes()
-        if users[uid].get("balance", 0) < 4:
-            await update.message.reply_text("❌ **Balance Low!**\nMinimum 4 coins chahiye withdrawal ke liye.", parse_mode="Markdown")
+        if users[uid].get("balance", 0) < WITHDRAW_COST:
+            await update.message.reply_text(f"❌ **Balance Low!**\nMinimum {WITHDRAW_COST} coins chahiye withdrawal ke liye.", parse_mode="Markdown")
             return
         if not codes:
             await update.message.reply_text("❌ **Code limited over.**\nWait and withdrawal again after new stock.", parse_mode="Markdown")
@@ -174,12 +181,12 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Coin Cut & Code Send
         my_code = codes.pop(0)
-        users[uid]["balance"] -= 4
+        users[uid]["balance"] -= WITHDRAW_COST
         save_codes(codes)
         save_users(users)
         
         btn = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Verify Code", url=AD_LINK)]])
-        await update.message.reply_text(f"✅ **Withdraw Success!**\n\n🎁 Your Code: `{my_code}`\n\n⚠️ 4 Coins cut ho gaye hain.", reply_markup=btn, parse_mode="Markdown")
+        await update.message.reply_text(f"✅ **Withdraw Success!**\n\n🎁 Your Code: `{my_code}`\n\n⚠️ {WITHDRAW_COST} Coins cut ho gaye hain.", reply_markup=btn, parse_mode="Markdown")
             
     elif text == "🆘 Support":
         await update.message.reply_text(f"📞 Support: {SUPPORT}")
@@ -224,3 +231,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+        
