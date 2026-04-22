@@ -157,7 +157,7 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "👥 Refer Earn":
         bot_info = await context.bot.get_me()
         link = f"https://t.me/{bot_info.username}?start={uid}"
-        await update.message.reply_text(f"👥 **Refer & Earn**\n\n🔥 1 Refer = 1 Coin\n🎁 3 Refer = 1 Myntra Code\n\n🔗 Your Link: `{link}`", parse_mode="Markdown")
+        await update.message.reply_text(f"👥 **Refer & Earn**\n\n🔥 1 Refer = 1 Coin\n🎁 4 Refer = 1 Myntra Code\n\n🔗 Your Link: `{link}`", parse_mode="Markdown")
         
     elif text == "🎁 Bonus":
         btn = InlineKeyboardMarkup([[InlineKeyboardButton("🎁 Claim Bonus", url=AD_LINK)]])
@@ -179,7 +179,7 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_users(users)
         
         btn = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Verify Code", url=AD_LINK)]])
-        await update.message.reply_text(f"✅ **Withdraw Success!**\n\n🎁 Your Code: `{my_code}`\n\n⚠️ 3 Coins cut ho gaye hain.", reply_markup=btn, parse_mode="Markdown")
+        await update.message.reply_text(f"✅ **Withdraw Success!**\n\n🎁 Your Code: `{my_code}`\n\n⚠️ 4 Coins cut ho gaye hain.", reply_markup=btn, parse_mode="Markdown")
             
     elif text == "🆘 Support":
         await update.message.reply_text(f"📞 Support: {SUPPORT}")
