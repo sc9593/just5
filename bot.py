@@ -165,8 +165,8 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     elif text == "💸 Withdraw":
         codes = load_codes()
-        if users[uid].get("balance", 0) < 3:
-            await update.message.reply_text("❌ **Balance Low!**\nMinimum 3 coins chahiye withdrawal ke liye.", parse_mode="Markdown")
+        if users[uid].get("balance", 0) < 4:
+            await update.message.reply_text("❌ **Balance Low!**\nMinimum 4 coins chahiye withdrawal ke liye.", parse_mode="Markdown")
             return
         if not codes:
             await update.message.reply_text("❌ **Code limited over.**\nWait and withdrawal again after new stock.", parse_mode="Markdown")
@@ -174,7 +174,7 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Coin Cut & Code Send
         my_code = codes.pop(0)
-        users[uid]["balance"] -= 3
+        users[uid]["balance"] -= 4
         save_codes(codes)
         save_users(users)
         
