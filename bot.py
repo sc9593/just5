@@ -23,9 +23,6 @@ from telegram.ext import (
 # ================= ERROR TRACKER =================
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    print(f"❌❌❌ BOT ERROR: {context.error}")
-
 # ================= SERVER =================
 app = Flask('')
 @app.route('/')
@@ -52,15 +49,11 @@ REFER_REWARD = 1
 CHANNELS = ["@Sumanearningtrickk", "@PaisaBachaoDealssss", "@EarnBazaarrr"]
 CHANNEL_LINKS = ["https://t.me/Sumanearningtrickk", "https://t.me/PaisaBachaoDealssss", "https://t.me/EarnBazaarrr"]
 
-# STORE ITEMS
-STORE_ITEMS = {
-    "m50": {"name": "Myntra 50% off Code", "price": 80},
-    "m100": {"name": "Myntra 100 Off on 649", "price": 20},
-    "combo": {"name": "Myntra Combo(100+100)", "price": 55}
-}
-
+# FILE PATHS
 DATA_FILE = "users.json"
-CODES_FILE = "codes.txt"
+FREE_CODES_FILE = "free_codes.txt"
+PAID_CODES_FILE = "paid_codes.txt"
+STORE_CONFIG_FILE = "store_config.json"
 
 file_lock = asyncio.Lock()
 
@@ -75,18 +68,25 @@ async def load_users():
 
 async def save_users(data):
     async with file_lock:
-        with open(DATA_FILE, "w") as f:
-            json.dump(data, f, indent=4)
+        with open(DATA_FILE, "w") as f: json.dump(data, f, indent=4)
 
-def load_codes():
-    if os.path.exists(CODES_FILE):
-        with open(CODES_FILE, "r") as f:
-            return [c.strip() for c in f.readlines() if c.strip()]
+def load_store_config():
+    if os.path.exists(STORE_CONFIG_FILE):
+        try:
+            with open(STORE_CONFIG_FILE, "r") as f: return json.load(f)
+        except: return {"price": 80}
+    return {"price": 80} # Default price
+
+def save_store_config(data):
+    with open(STORE_CONFIG_FILE, "w") as f: json.dump(data, f)
+
+def load_codes(filename):
+    if os.path.exists(filename):
+        with open(filename, "r") as f: return [c.strip() for c in f.readlines() if c.strip()]
     return []
 
-def save_codes(c_list):
-    with open(CODES_FILE, "w") as f:
-        f.write("\n".join(c_list))
+def save_codes(filename, c_list):
+    with open(filename, "w") as f: f.write("\n".join(c_list))
 
 # ================= LOGIC =================
 async def is_joined(bot, user_id):
@@ -116,12 +116,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     uid = str(user_id)
     first_name = update.effective_user.first_name or "New User"
-    
     users = await load_users()
     
     if uid not in users:
         users[uid] = {"balance": 0, "refs": [], "referred_by": "None", "state": "NORMAL", "name": first_name}
-        
         if context.args:
             ref_id = str(context.args[0])
             if ref_id in users and ref_id != uid and users.get(uid, {}).get("referred_by") != ref_id:
@@ -131,18 +129,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if uid not in users[ref_id]["refs"]:
                     users[ref_id]["refs"].append(uid)
                     try:
-                        await context.bot.send_message(
-                            chat_id=int(ref_id), 
-                            text=f"🔔 **Naya Refer!**\n*{first_name}* ne aapke link se join kiya. Aapko **+{REFER_REWARD} coin** mil gaya!",
-                            parse_mode="Markdown"
-                        )
+                        await context.bot.send_message(chat_id=int(ref_id), text=f"🔔 **Naya Refer!**\n*{first_name}* ne aapke link se join kiya. Aapko **+{REFER_REWARD} coin** mil gaya!", parse_mode="Markdown")
                     except: pass
         await save_users(users)
 
     if not await is_joined(context.bot, user_id):
         await update.message.reply_text("🔒 **Access Restricted**\nJoin channels to use bot👇", reply_markup=join_buttons(), parse_mode="Markdown")
         return
-
     await update.message.reply_text(f"🎉 **Welcome {first_name}!**", reply_markup=main_menu(), parse_mode="Markdown")
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -150,7 +143,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     data = q.data
     uid = str(q.from_user.id)
-    
     users = await load_users()
     
     if data == "verify":
@@ -160,30 +152,27 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await q.message.reply_text("❌ Sabhi channels join karke Verify dabayein.")
             
-    elif data.startswith("buy_"):
-        item_code = data.split("_")[1]
-        item = STORE_ITEMS[item_code]
-        btn = [[InlineKeyboardButton("1", callback_data=f"qty_{item_code}_1"), InlineKeyboardButton("2", callback_data=f"qty_{item_code}_2")],
-               [InlineKeyboardButton("3", callback_data=f"qty_{item_code}_3"), InlineKeyboardButton("5", callback_data=f"qty_{item_code}_5")],
-               [InlineKeyboardButton("⬅️ Back", callback_data="store_menu")]]
-        await q.edit_message_text(f"🛒 **{item['name']}**\nPrice: ₹{item['price']}/code\n\n**Quantity select karein:**", reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
-
+    # BUY FLOW - STEP 1 (Show QR)
     elif data.startswith("qty_"):
-        _, item_code, qty = data.split("_")
-        qty = int(qty)
-        item = STORE_ITEMS[item_code]
-        total = item['price'] * qty
+        qty = int(data.split("_")[1])
+        config = load_store_config()
+        total = config["price"] * qty
         
-        users[uid]["state"] = f"PAYING_{item_code}_{qty}_{total}"
+        users[uid]["state"] = f"PAYING_{qty}_{total}"
         await save_users(users)
         
-        msg = (f"🧾 **Order Summary**\n\n📦 Product: {item['name']}\n🔢 Quantity: {qty}\n💰 **Total: ₹{total}**\n\n"
+        msg = (f"🧾 **Order Summary**\n\n📦 Product: Myntra 50% Off\n🔢 Quantity: {qty}\n💰 **Total: ₹{total}**\n\n"
                f"🏦 **Payment Details:**\n👤 Name: `{PAYEE_NAME}`\n🔗 UPI ID: `{UPI_ID}` (Tap to copy)\n\n"
                f"⚠️ *Payment ke baad '✅ I Paid' dabayein.*")
         
         btn = [[InlineKeyboardButton("✅ I Paid", callback_data="ipaid")]]
         await q.message.delete()
-        await context.bot.send_photo(chat_id=int(uid), photo=QR_IMAGE_URL, caption=msg, reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
+        
+        # Safe QR Loading Fallback
+        try:
+            await context.bot.send_photo(chat_id=int(uid), photo=QR_IMAGE_URL, caption=msg, reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
+        except:
+            await context.bot.send_message(chat_id=int(uid), text=f"[📷 Click Here to View QR]({QR_IMAGE_URL})\n\n{msg}", reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown", disable_web_page_preview=False)
 
     elif data == "ipaid":
         state = users.get(uid, {}).get("state", "")
@@ -191,10 +180,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             users[uid]["state"] = state.replace("PAYING_", "WAIT_UTR_")
             await save_users(users)
             await q.message.reply_text("📝 **Apna 12-digit UTR / Transaction ID bhejein:**")
-
-    elif data == "store_menu":
-        btn = [[InlineKeyboardButton(STORE_ITEMS[k]["name"] + f" | ₹{STORE_ITEMS[k]['price']}", callback_data=f"buy_{k}")] for k in STORE_ITEMS]
-        await q.edit_message_text("🛍️ **Select Product:**", reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
@@ -208,28 +193,31 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     state = users[uid].get("state", "NORMAL")
 
-    # UTR Submission to Admin
+    # --- UTR SUBMIT TO ADMIN ---
     if state.startswith("WAIT_UTR_"):
-        _, item_code, qty, total = state.split("_")
-        item_name = STORE_ITEMS[item_code]["name"]
-        admin_msg = (f"🚨 **NEW PAYMENT**\n👤 User: {first_name} (`{uid}`)\n📦 Item: {item_name}\n💰 Amount: ₹{total}\n🧾 **UTR:** `{text}`\n\n"
-                     f"✅ `/approve {uid} CODE` | ❌ `/reject {uid}`")
+        _, qty, total = state.split("_")
+        
+        admin_msg = (f"🚨 **NEW PAYMENT UTR** 🚨\n\n👤 User: {first_name} (`{uid}`)\n📦 Item: Myntra 50% Off\n🔢 Qty: {qty}\n💰 Amount: ₹{total}\n🧾 **UTR:** `{text}`\n\n"
+                     f"✅ To Approve send:\n`/approve {uid} {qty}`\n\n"
+                     f"❌ To Reject send:\n`/reject {uid}`")
         try:
             await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode="Markdown")
         except: pass
         users[uid]["state"] = "NORMAL"
         await save_users(users)
-        await update.message.reply_text("⏳ **Review mein hai!** 5-20 min mein code mil jayega.")
+        await update.message.reply_text("⏳ **Review mein hai!** Payment verify hone ke baad aapko code bhej diya jayega.")
         return
 
-    # Check join status for menu items
     if not await is_joined(context.bot, update.effective_user.id):
         await update.message.reply_text("🔒 Join channels👇", reply_markup=join_buttons())
         return
 
+    # --- STORE MENU (ONLY 50% ITEM) ---
     if text == "🛒 Buy Code":
-        btn = [[InlineKeyboardButton(STORE_ITEMS[k]["name"] + f" | ₹{STORE_ITEMS[k]['price']}", callback_data=f"buy_{k}")] for k in STORE_ITEMS]
-        await update.message.reply_text("🛍️ **Store Catalog:**", reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
+        config = load_store_config()
+        btn = [[InlineKeyboardButton("1", callback_data="qty_1"), InlineKeyboardButton("2", callback_data="qty_2")],
+               [InlineKeyboardButton("3", callback_data="qty_3"), InlineKeyboardButton("5", callback_data="qty_5")]]
+        await update.message.reply_text(f"🛒 **Myntra 50% off Code**\nPrice: ₹{config['price']}/code\n\n**Select Quantity:**", reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
 
     elif text == "💰 Balance":
         await update.message.reply_text(f"💰 **Balance:** {users[uid].get('balance', 0)} coins")
@@ -244,7 +232,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Bonus ke liye ad dekhein:", reply_markup=btn)
         
     elif text == "💸 Free Withdraw":
-        stock = load_codes()
+        stock = load_codes(FREE_CODES_FILE)
         if users[uid].get("balance", 0) < WITHDRAW_COST:
             await update.message.reply_text(f"❌ {WITHDRAW_COST} coins chahiye!")
             return
@@ -254,55 +242,95 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         my_code = stock.pop(0)
         users[uid]["balance"] -= WITHDRAW_COST
-        save_codes(stock)
+        save_codes(FREE_CODES_FILE, stock)
         await save_users(users)
-        await update.message.reply_text(f"✅ **Code:** `{my_code}`", parse_mode="Markdown")
+        btn = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Verify Code", url=AD_LINK)]])
+        await update.message.reply_text(f"✅ **Withdraw Success!**\n\n🎁 **Code:** `{my_code}`\n\n⚠️ {WITHDRAW_COST} Coins cut.", reply_markup=btn, parse_mode="Markdown")
             
     elif text == "🆘 Support":
         await update.message.reply_text(f"📞 Contact: {SUPPORT}")
 
-# ================= ADMIN =================
-async def addfreecode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id == ADMIN_ID:
-        new_c = " ".join(context.args)
-        if new_c:
-            s = load_codes()
-            s.append(new_c)
-            save_codes(s)
-            await update.message.reply_text(f"✅ Added! Total Stock: {len(s)}")
+# ================= ADMIN COMMANDS =================
+
+async def addfree(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    new_c = " ".join(context.args)
+    if new_c:
+        s = load_codes(FREE_CODES_FILE)
+        s.append(new_c)
+        save_codes(FREE_CODES_FILE, s)
+        await update.message.reply_text(f"✅ Added to Free Stock! Total: {len(s)}")
+
+async def addpaid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    new_c = " ".join(context.args)
+    if new_c:
+        s = load_codes(PAID_CODES_FILE)
+        s.append(new_c)
+        save_codes(PAID_CODES_FILE, s)
+        await update.message.reply_text(f"✅ Added to Store Stock! Total: {len(s)}")
+
+async def setprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    try:
+        new_price = int(context.args[0])
+        save_store_config({"price": new_price})
+        await update.message.reply_text(f"✅ Store Price updated to ₹{new_price}")
+    except:
+        await update.message.reply_text("❌ Error. Use format: /setprice 60")
+
+async def stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    free_stock = len(load_codes(FREE_CODES_FILE))
+    paid_stock = len(load_codes(PAID_CODES_FILE))
+    await update.message.reply_text(f"📊 **Stock Report**\n\n🎁 Free Codes: {free_stock}\n🛒 Paid Codes (Store): {paid_stock}", parse_mode="Markdown")
 
 async def approve_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id == ADMIN_ID:
-        try:
-            target_uid, code = context.args[0], " ".join(context.args[1:])
-            await context.bot.send_message(chat_id=int(target_uid), text=f"✅ **Approve!** Code: `{code}`", parse_mode="Markdown")
-            await update.message.reply_text("Done!")
-        except: pass
+    if update.effective_user.id != ADMIN_ID: return
+    try:
+        target_uid = context.args[0]
+        qty = int(context.args[1])
+        
+        paid_stock = load_codes(PAID_CODES_FILE)
+        if len(paid_stock) < qty:
+            await update.message.reply_text(f"❌ Stock kam hai! Aapke paas sirf {len(paid_stock)} paid code bache hain.")
+            return
+            
+        # Nikaal lo codes
+        codes_to_give = []
+        for _ in range(qty):
+            codes_to_give.append(paid_stock.pop(0))
+        save_codes(PAID_CODES_FILE, paid_stock)
+        
+        code_text = "\n".join([f"`{c}`" for c in codes_to_give])
+        
+        await context.bot.send_message(chat_id=int(target_uid), text=f"✅ **Payment Approved!**\n\nHere are your codes:\n{code_text}\n\nThank you for purchasing!", parse_mode="Markdown")
+        await update.message.reply_text(f"✅ Approved! Sent {qty} codes to {target_uid}. Remaining paid stock: {len(paid_stock)}")
+    except Exception as e: 
+        await update.message.reply_text("❌ Format Error. Use: /approve <USER_ID> <QTY>")
 
 async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id == ADMIN_ID:
-        try:
-            await context.bot.send_message(chat_id=int(context.args[0]), text="❌ **Rejected!** Payment verify nahi hui.")
-            await update.message.reply_text("Done!")
-        except: pass
+    if update.effective_user.id != ADMIN_ID: return
+    try:
+        await context.bot.send_message(chat_id=int(context.args[0]), text="❌ **Payment Rejected**\n\nWe could not verify your UTR. Please contact support.")
+        await update.message.reply_text("🚫 Order Rejected.")
+    except: pass
 
 def main():
     application = ApplicationBuilder().token(BOT_TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("addcode", addfreecode))
+    application.add_handler(CommandHandler("addfree", addfree))
+    application.add_handler(CommandHandler("addpaid", addpaid))
+    application.add_handler(CommandHandler("setprice", setprice))
+    application.add_handler(CommandHandler("stock", stock))
     application.add_handler(CommandHandler("approve", approve_order))
     application.add_handler(CommandHandler("reject", reject_order))
     
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
-    application.add_error_handler(error_handler)
-    
     keep_alive()
-    print("🤖 Bot is starting up...")
-    
-    # Ye purane fass gaye messages ko udayega aur naye se start karega
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__': 
