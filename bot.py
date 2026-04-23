@@ -1,4 +1,5 @@
 import os
+import json
 import asyncio
 import logging
 import firebase_admin
@@ -23,25 +24,51 @@ from telegram.ext import (
 
 # ================= ERROR TRACKER =================
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    print(f"❌❌❌ BOT ERROR: {context.error}")
 
-# ================= FIREBASE SETUP =================
-if not firebase_admin._apps:
-    cred = credentials.Certificate("firebase-key.json")
-    firebase_admin.initialize_app(cred, {
-        'databaseURL': 'https://myntrabot-f4498-default-rtdb.firebaseio.com/'
-    })
+# ================= SAFE FIREBASE SETUP =================
+# Ye block bot ko crash hone se bachayega aur exact error batayega
+print("🔄 Firebase connect karne ki koshish kar raha hoon...")
+try:
+    if not firebase_admin._apps:
+        # Check 1: Kya file wahan hai?
+        if os.path.exists("firebase-key.json"):
+            print("📄 firebase-key.json file mil gayi! Connect kar raha hoon...")
+            cred = credentials.Certificate("firebase-key.json")
+        else:
+            print("⚠️ File nahi mili! Render ke Environment Variables check kar raha hoon...")
+            env_key = os.environ.get("FIREBASE_KEY")
+            if env_key:
+                try:
+                    key_dict = json.loads(env_key)
+                    cred = credentials.Certificate(key_dict)
+                    print("✅ Environment Variable sahi se mil gaya!")
+                except Exception as json_err:
+                    raise Exception(f"JSON Format Error: Render ne text bigad diya hai. Details: {json_err}")
+            else:
+                raise Exception("❌ Na file mili, na Environment variable! Firebase Password missing hai.")
+        
+        firebase_admin.initialize_app(cred, {
+            'databaseURL': 'https://myntrabot-f4498-default-rtdb.firebaseio.com/'
+        })
+        print("🔥 Firebase 100% Successfully Connected!")
+except Exception as e:
+    print(f"❌❌❌ FIREBASE FATAL ERROR: {e}")
+    print("⚠️ Bot bina Firebase ke chal raha hai (Data save nahi hoga).")
 
-users_ref = db.reference('users')
-free_codes_ref = db.reference('free_codes')
-paid_codes_ref = db.reference('paid_codes')
-store_ref = db.reference('store_config')
+# Variables (Safe references)
+try:
+    users_ref = db.reference('users')
+    free_codes_ref = db.reference('free_codes')
+    paid_codes_ref = db.reference('paid_codes')
+    store_ref = db.reference('store_config')
+    FIREBASE_WORKING = True
+except:
+    FIREBASE_WORKING = False
 
 # ================= SERVER =================
 app = Flask('')
 @app.route('/')
-def home(): return "Bot is Live (FIREBASE CONNECTED)!"
+def home(): return "Bot is Live!"
 def run(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
 def keep_alive(): Thread(target=run).start()
 
@@ -51,16 +78,12 @@ ADMIN_ID = 7132741918
 SUPPORT = "@myntracodes"
 AD_LINK = "https://omg10.com/4/10903029"
 
-# PAYMENT DETAILS
 UPI_ID = "paytmqr1qqff9il6x@paytm"
 PAYEE_NAME = "Suman Chowdhury"
 QR_IMAGE_URL = "https://i.postimg.cc/VNxwYmcZ/Paytm-QRcode-1758815347919.png"
 
-# REFERRAL RULES
 WITHDRAW_COST = 8
 REFER_REWARD = 1
-
-# CHANNELS
 CHANNELS = ["@Sumanearningtrickk", "@PaisaBachaoDealssss", "@EarnBazaarrr"]
 CHANNEL_LINKS = ["https://t.me/Sumanearningtrickk", "https://t.me/PaisaBachaoDealssss", "https://t.me/EarnBazaarrr"]
 
@@ -75,13 +98,7 @@ async def is_joined(bot, user_id):
     return True
 
 def main_menu():
-    kb = [
-        ["🛒 Buy Code"],
-        ["💰 Balance", "👥 Refer Earn"], 
-        ["🎁 Bonus", "💸 Free Withdraw"], 
-        ["🆘 Support"]
-    ]
-    return ReplyKeyboardMarkup(kb, resize_keyboard=True)
+    return ReplyKeyboardMarkup([["🛒 Buy Code"], ["💰 Balance", "👥 Refer Earn"], ["🎁 Bonus", "💸 Free Withdraw"], ["🆘 Support"]], resize_keyboard=True)
 
 def join_buttons():
     btn = [[InlineKeyboardButton(f"🔔 Join Channel {i+1}", url=l)] for i, l in enumerate(CHANNEL_LINKS)]
@@ -89,6 +106,10 @@ def join_buttons():
     return InlineKeyboardMarkup(btn)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not FIREBASE_WORKING:
+        await update.message.reply_text("⚠️ **System Error:** Firebase connect nahi hua hai. Admin se sampark karein.")
+        return
+        
     user_id = update.effective_user.id
     uid = str(user_id)
     first_name = update.effective_user.first_name or "New User"
@@ -102,7 +123,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             referrer = users_ref.child(ref_id).get()
             if referrer and ref_id != uid and referrer.get("referred_by") != uid:
                 users_ref.child(uid).update({"referred_by": ref_id})
-                
                 new_bal = referrer.get("balance", 0) + REFER_REWARD
                 refs_list = referrer.get("refs") or []
                 if uid not in refs_list:
@@ -118,6 +138,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🎉 **Welcome {first_name}!**", reply_markup=main_menu(), parse_mode="Markdown")
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not FIREBASE_WORKING: return
     q = update.callback_query
     await q.answer()
     data = q.data
@@ -130,21 +151,16 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await q.message.reply_text("❌ Sabhi channels join karke Verify dabayein.")
             
-    # BUY FLOW - STEP 1 (Show QR)
     elif data.startswith("qty_"):
         qty = int(data.split("_")[1])
         config = store_ref.get() or {"price": 80}
         total = config["price"] * qty
-        
         users_ref.child(uid).update({"state": f"PAYING_{qty}_{total}"})
-        
         msg = (f"🧾 **Order Summary**\n\n📦 Product: Myntra 50% Off\n🔢 Quantity: {qty}\n💰 **Total: ₹{total}**\n\n"
                f"🏦 **Payment Details:**\n👤 Name: `{PAYEE_NAME}`\n🔗 UPI ID: `{UPI_ID}` (Tap to copy)\n\n"
                f"⚠️ *Payment ke baad '✅ I Paid' dabayein.*")
-        
         btn = [[InlineKeyboardButton("✅ I Paid", callback_data="ipaid")]]
         await q.message.delete()
-        
         try:
             await context.bot.send_photo(chat_id=int(uid), photo=QR_IMAGE_URL, caption=msg, reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
         except:
@@ -158,6 +174,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.reply_text("📝 **Apna 12-digit UTR / Transaction ID bhejein:**")
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not FIREBASE_WORKING: return
     text = update.message.text
     uid = str(update.effective_user.id)
     first_name = update.effective_user.first_name or "User"
@@ -169,25 +186,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     state = user.get("state", "NORMAL")
 
-    # --- UTR SUBMIT TO ADMIN ---
     if state.startswith("WAIT_UTR_"):
         _, qty, total = state.split("_")
-        
         admin_msg = (f"🚨 **NEW PAYMENT UTR** 🚨\n\n👤 User: {first_name} (`{uid}`)\n📦 Item: Myntra 50% Off\n🔢 Qty: {qty}\n💰 Amount: ₹{total}\n🧾 **UTR:** `{text}`\n\n"
-                     f"✅ To Approve send:\n`/approve {uid} {qty}`\n\n"
-                     f"❌ To Reject send:\n`/reject {uid}`")
-        try:
-            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode="Markdown")
+                     f"✅ To Approve send:\n`/approve {uid} {qty}`\n\n❌ To Reject send:\n`/reject {uid}`")
+        try: await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode="Markdown")
         except: pass
         users_ref.child(uid).update({"state": "NORMAL"})
-        await update.message.reply_text("⏳ **Review mein hai!** Payment verify hone ke baad aapko code bhej diya jayega.")
+        await update.message.reply_text("⏳ **Review mein hai!** Payment verify hone ke baad code mil jayega.")
         return
 
     if not await is_joined(context.bot, update.effective_user.id):
         await update.message.reply_text("🔒 Join channels👇", reply_markup=join_buttons())
         return
 
-    # --- STORE MENU ---
     if text == "🛒 Buy Code":
         config = store_ref.get() or {"price": 80}
         btn = [[InlineKeyboardButton("1", callback_data="qty_1"), InlineKeyboardButton("2", callback_data="qty_2")],
@@ -226,7 +238,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= ADMIN COMMANDS =================
 async def addfree(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
+    if update.effective_user.id != ADMIN_ID or not FIREBASE_WORKING: return
     new_c = " ".join(context.args)
     if new_c:
         s = free_codes_ref.get() or []
@@ -235,7 +247,7 @@ async def addfree(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Added to Free Stock! Total: {len(s)}")
 
 async def addpaid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
+    if update.effective_user.id != ADMIN_ID or not FIREBASE_WORKING: return
     new_c = " ".join(context.args)
     if new_c:
         s = paid_codes_ref.get() or []
@@ -244,7 +256,7 @@ async def addpaid(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Added to Store Stock! Total: {len(s)}")
 
 async def setprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
+    if update.effective_user.id != ADMIN_ID or not FIREBASE_WORKING: return
     try:
         new_price = int(context.args[0])
         store_ref.set({"price": new_price})
@@ -253,36 +265,33 @@ async def setprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Error. Use format: /setprice 60")
 
 async def stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
+    if update.effective_user.id != ADMIN_ID or not FIREBASE_WORKING: return
     free_stock = len(free_codes_ref.get() or [])
     paid_stock = len(paid_codes_ref.get() or [])
     await update.message.reply_text(f"📊 **Stock Report**\n\n🎁 Free Codes: {free_stock}\n🛒 Paid Codes (Store): {paid_stock}", parse_mode="Markdown")
 
 async def approve_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
+    if update.effective_user.id != ADMIN_ID or not FIREBASE_WORKING: return
     try:
         target_uid = context.args[0]
         qty = int(context.args[1])
-        
         paid_stock = paid_codes_ref.get() or []
         if len(paid_stock) < qty:
             await update.message.reply_text(f"❌ Stock kam hai! Aapke paas sirf {len(paid_stock)} paid code bache hain.")
             return
             
         codes_to_give = []
-        for _ in range(qty):
-            codes_to_give.append(paid_stock.pop(0))
+        for _ in range(qty): codes_to_give.append(paid_stock.pop(0))
         paid_codes_ref.set(paid_stock)
         
         code_text = "\n".join([f"`{c}`" for c in codes_to_give])
-        
         await context.bot.send_message(chat_id=int(target_uid), text=f"✅ **Payment Approved!**\n\nHere are your codes:\n{code_text}\n\nThank you for purchasing!", parse_mode="Markdown")
         await update.message.reply_text(f"✅ Approved! Sent {qty} codes to {target_uid}. Remaining paid stock: {len(paid_stock)}")
     except Exception as e: 
         await update.message.reply_text("❌ Format Error. Use: /approve <USER_ID> <QTY>")
 
 async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
+    if update.effective_user.id != ADMIN_ID or not FIREBASE_WORKING: return
     try:
         await context.bot.send_message(chat_id=int(context.args[0]), text="❌ **Payment Rejected**\n\nWe could not verify your UTR. Please contact support.")
         await update.message.reply_text("🚫 Order Rejected.")
@@ -302,10 +311,8 @@ def main():
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
-    application.add_error_handler(error_handler)
-    
     keep_alive()
-    print("🤖 Bot is starting up with Firebase...")
+    print("🤖 Bot is starting up...")
     
     application.run_polling(drop_pending_updates=True)
 
