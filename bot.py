@@ -4,8 +4,6 @@ import asyncio
 import logging
 import firebase_admin
 from firebase_admin import credentials, db
-from flask import Flask
-from threading import Thread
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -26,36 +24,25 @@ from telegram.ext import (
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # ================= SAFE FIREBASE SETUP =================
-# Ye block bot ko crash hone se bachayega aur exact error batayega
-print("🔄 Firebase connect karne ki koshish kar raha hoon...")
+print("🔄 Firebase connect kar raha hoon...")
 try:
     if not firebase_admin._apps:
-        # Check 1: Kya file wahan hai?
         if os.path.exists("firebase-key.json"):
-            print("📄 firebase-key.json file mil gayi! Connect kar raha hoon...")
             cred = credentials.Certificate("firebase-key.json")
         else:
-            print("⚠️ File nahi mili! Render ke Environment Variables check kar raha hoon...")
             env_key = os.environ.get("FIREBASE_KEY")
             if env_key:
-                try:
-                    key_dict = json.loads(env_key)
-                    cred = credentials.Certificate(key_dict)
-                    print("✅ Environment Variable sahi se mil gaya!")
-                except Exception as json_err:
-                    raise Exception(f"JSON Format Error: Render ne text bigad diya hai. Details: {json_err}")
+                cred = credentials.Certificate(json.loads(env_key))
             else:
-                raise Exception("❌ Na file mili, na Environment variable! Firebase Password missing hai.")
+                raise Exception("Firebase Password missing hai.")
         
         firebase_admin.initialize_app(cred, {
             'databaseURL': 'https://myntrabot-f4498-default-rtdb.firebaseio.com/'
         })
-        print("🔥 Firebase 100% Successfully Connected!")
+        print("🔥 Firebase 100% Connected!")
 except Exception as e:
-    print(f"❌❌❌ FIREBASE FATAL ERROR: {e}")
-    print("⚠️ Bot bina Firebase ke chal raha hai (Data save nahi hoga).")
+    print(f"❌ FIREBASE ERROR: {e}")
 
-# Variables (Safe references)
 try:
     users_ref = db.reference('users')
     free_codes_ref = db.reference('free_codes')
@@ -64,13 +51,6 @@ try:
     FIREBASE_WORKING = True
 except:
     FIREBASE_WORKING = False
-
-# ================= SERVER =================
-app = Flask('')
-@app.route('/')
-def home(): return "Bot is Live!"
-def run(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
-def keep_alive(): Thread(target=run).start()
 
 # ================= CONFIG =================
 BOT_TOKEN = "8653750221:AAHx4A_npTXnorIqHHP6tCKGgOVwRyQ9QZw"
@@ -86,6 +66,9 @@ WITHDRAW_COST = 8
 REFER_REWARD = 1
 CHANNELS = ["@Sumanearningtrickk", "@PaisaBachaoDealssss", "@EarnBazaarrr"]
 CHANNEL_LINKS = ["https://t.me/Sumanearningtrickk", "https://t.me/PaisaBachaoDealssss", "https://t.me/EarnBazaarrr"]
+
+# AAPKA RENDER URL (Screenshot se liya hai)
+RENDER_URL = "https://just5.onrender.com"
 
 # ================= LOGIC =================
 async def is_joined(bot, user_id):
@@ -107,13 +90,11 @@ def join_buttons():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not FIREBASE_WORKING:
-        await update.message.reply_text("⚠️ **System Error:** Firebase connect nahi hua hai. Admin se sampark karein.")
+        await update.message.reply_text("⚠️ **System Error:** Firebase connect nahi hua hai.")
         return
         
-    user_id = update.effective_user.id
-    uid = str(user_id)
+    uid = str(update.effective_user.id)
     first_name = update.effective_user.first_name or "New User"
-    
     user = users_ref.child(uid).get()
     
     if not user:
@@ -132,8 +113,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await context.bot.send_message(chat_id=int(ref_id), text=f"🔔 **Naya Refer!**\n*{first_name}* ne aapke link se join kiya. Aapko **+{REFER_REWARD} coin** mil gaya!", parse_mode="Markdown")
                     except: pass
 
-    if not await is_joined(context.bot, user_id):
-        await update.message.reply_text("🔒 **Access Restricted**\nJoin channels to use bot👇", reply_markup=join_buttons(), parse_mode="Markdown")
+    if not await is_joined(context.bot, update.effective_user.id):
+        await update.message.reply_text("🔒 **Access Restricted**\nJoin channels👇", reply_markup=join_buttons(), parse_mode="Markdown")
         return
     await update.message.reply_text(f"🎉 **Welcome {first_name}!**", reply_markup=main_menu(), parse_mode="Markdown")
 
@@ -161,10 +142,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                f"⚠️ *Payment ke baad '✅ I Paid' dabayein.*")
         btn = [[InlineKeyboardButton("✅ I Paid", callback_data="ipaid")]]
         await q.message.delete()
-        try:
-            await context.bot.send_photo(chat_id=int(uid), photo=QR_IMAGE_URL, caption=msg, reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
-        except:
-            await context.bot.send_message(chat_id=int(uid), text=f"[📷 Click Here to View QR]({QR_IMAGE_URL})\n\n{msg}", reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown", disable_web_page_preview=False)
+        try: await context.bot.send_photo(chat_id=int(uid), photo=QR_IMAGE_URL, caption=msg, reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
+        except: await context.bot.send_message(chat_id=int(uid), text=f"[📷 QR Code]({QR_IMAGE_URL})\n\n{msg}", reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
 
     elif data == "ipaid":
         user = users_ref.child(uid).get()
@@ -189,7 +168,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state.startswith("WAIT_UTR_"):
         _, qty, total = state.split("_")
         admin_msg = (f"🚨 **NEW PAYMENT UTR** 🚨\n\n👤 User: {first_name} (`{uid}`)\n📦 Item: Myntra 50% Off\n🔢 Qty: {qty}\n💰 Amount: ₹{total}\n🧾 **UTR:** `{text}`\n\n"
-                     f"✅ To Approve send:\n`/approve {uid} {qty}`\n\n❌ To Reject send:\n`/reject {uid}`")
+                     f"✅ `/approve {uid} {qty}`\n❌ `/reject {uid}`")
         try: await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode="Markdown")
         except: pass
         users_ref.child(uid).update({"state": "NORMAL"})
@@ -244,7 +223,7 @@ async def addfree(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s = free_codes_ref.get() or []
         s.append(new_c)
         free_codes_ref.set(s)
-        await update.message.reply_text(f"✅ Added to Free Stock! Total: {len(s)}")
+        await update.message.reply_text(f"✅ Free Stock Added! Total: {len(s)}")
 
 async def addpaid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID or not FIREBASE_WORKING: return
@@ -253,47 +232,40 @@ async def addpaid(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s = paid_codes_ref.get() or []
         s.append(new_c)
         paid_codes_ref.set(s)
-        await update.message.reply_text(f"✅ Added to Store Stock! Total: {len(s)}")
+        await update.message.reply_text(f"✅ Store Stock Added! Total: {len(s)}")
 
 async def setprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID or not FIREBASE_WORKING: return
     try:
-        new_price = int(context.args[0])
-        store_ref.set({"price": new_price})
-        await update.message.reply_text(f"✅ Store Price updated to ₹{new_price}")
+        store_ref.set({"price": int(context.args[0])})
+        await update.message.reply_text(f"✅ Price updated to ₹{context.args[0]}")
     except:
-        await update.message.reply_text("❌ Error. Use format: /setprice 60")
+        await update.message.reply_text("❌ Use format: /setprice 60")
 
 async def stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID or not FIREBASE_WORKING: return
-    free_stock = len(free_codes_ref.get() or [])
-    paid_stock = len(paid_codes_ref.get() or [])
-    await update.message.reply_text(f"📊 **Stock Report**\n\n🎁 Free Codes: {free_stock}\n🛒 Paid Codes (Store): {paid_stock}", parse_mode="Markdown")
+    await update.message.reply_text(f"📊 **Stock Report**\n🎁 Free: {len(free_codes_ref.get() or [])}\n🛒 Paid: {len(paid_codes_ref.get() or [])}")
 
 async def approve_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID or not FIREBASE_WORKING: return
     try:
-        target_uid = context.args[0]
-        qty = int(context.args[1])
+        target_uid, qty = context.args[0], int(context.args[1])
         paid_stock = paid_codes_ref.get() or []
         if len(paid_stock) < qty:
-            await update.message.reply_text(f"❌ Stock kam hai! Aapke paas sirf {len(paid_stock)} paid code bache hain.")
+            await update.message.reply_text(f"❌ Stock kam hai! Sirf {len(paid_stock)} bache hain.")
             return
             
-        codes_to_give = []
-        for _ in range(qty): codes_to_give.append(paid_stock.pop(0))
+        codes_to_give = [paid_stock.pop(0) for _ in range(qty)]
         paid_codes_ref.set(paid_stock)
         
-        code_text = "\n".join([f"`{c}`" for c in codes_to_give])
-        await context.bot.send_message(chat_id=int(target_uid), text=f"✅ **Payment Approved!**\n\nHere are your codes:\n{code_text}\n\nThank you for purchasing!", parse_mode="Markdown")
-        await update.message.reply_text(f"✅ Approved! Sent {qty} codes to {target_uid}. Remaining paid stock: {len(paid_stock)}")
-    except Exception as e: 
-        await update.message.reply_text("❌ Format Error. Use: /approve <USER_ID> <QTY>")
+        await context.bot.send_message(chat_id=int(target_uid), text=f"✅ **Payment Approved!**\nCodes:\n" + "\n".join([f"`{c}`" for c in codes_to_give]), parse_mode="Markdown")
+        await update.message.reply_text(f"✅ Approved! Sent {qty} codes. Remaining: {len(paid_stock)}")
+    except: await update.message.reply_text("❌ Format Error. Use: /approve <USER_ID> <QTY>")
 
 async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID or not FIREBASE_WORKING: return
     try:
-        await context.bot.send_message(chat_id=int(context.args[0]), text="❌ **Payment Rejected**\n\nWe could not verify your UTR. Please contact support.")
+        await context.bot.send_message(chat_id=int(context.args[0]), text="❌ **Payment Rejected**\nWe could not verify your UTR.")
         await update.message.reply_text("🚫 Order Rejected.")
     except: pass
 
@@ -307,14 +279,19 @@ def main():
     application.add_handler(CommandHandler("stock", stock))
     application.add_handler(CommandHandler("approve", approve_order))
     application.add_handler(CommandHandler("reject", reject_order))
-    
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
-    keep_alive()
-    print("🤖 Bot is starting up...")
+    print("🚀 Majaik Trick: Webhook Starting...")
+    PORT = int(os.environ.get("PORT", "10000"))
     
-    application.run_polling(drop_pending_updates=True)
+    # MAGIC TRICK: WEBHOOK (No more polling errors!)
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        webhook_url=RENDER_URL,
+        drop_pending_updates=True
+    )
 
 if __name__ == '__main__': 
     main()
