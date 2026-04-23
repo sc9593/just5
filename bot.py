@@ -1,7 +1,8 @@
 import os
-import json
 import asyncio
 import logging
+import firebase_admin
+from firebase_admin import credentials, db
 from flask import Flask
 from threading import Thread
 from telegram import (
@@ -22,11 +23,25 @@ from telegram.ext import (
 
 # ================= ERROR TRACKER =================
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    print(f"❌❌❌ BOT ERROR: {context.error}")
+
+# ================= FIREBASE SETUP =================
+if not firebase_admin._apps:
+    cred = credentials.Certificate("firebase-key.json")
+    firebase_admin.initialize_app(cred, {
+        'databaseURL': 'https://myntrabot-f4498-default-rtdb.firebaseio.com/'
+    })
+
+users_ref = db.reference('users')
+free_codes_ref = db.reference('free_codes')
+paid_codes_ref = db.reference('paid_codes')
+store_ref = db.reference('store_config')
 
 # ================= SERVER =================
 app = Flask('')
 @app.route('/')
-def home(): return "Bot is Live (NO FIREBASE)!"
+def home(): return "Bot is Live (FIREBASE CONNECTED)!"
 def run(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
 def keep_alive(): Thread(target=run).start()
 
@@ -48,45 +63,6 @@ REFER_REWARD = 1
 # CHANNELS
 CHANNELS = ["@Sumanearningtrickk", "@PaisaBachaoDealssss", "@EarnBazaarrr"]
 CHANNEL_LINKS = ["https://t.me/Sumanearningtrickk", "https://t.me/PaisaBachaoDealssss", "https://t.me/EarnBazaarrr"]
-
-# FILE PATHS
-DATA_FILE = "users.json"
-FREE_CODES_FILE = "free_codes.txt"
-PAID_CODES_FILE = "paid_codes.txt"
-STORE_CONFIG_FILE = "store_config.json"
-
-file_lock = asyncio.Lock()
-
-# ================= DATA HELPERS =================
-async def load_users():
-    async with file_lock:
-        if os.path.exists(DATA_FILE):
-            try:
-                with open(DATA_FILE, "r") as f: return json.load(f)
-            except: return {}
-        return {}
-
-async def save_users(data):
-    async with file_lock:
-        with open(DATA_FILE, "w") as f: json.dump(data, f, indent=4)
-
-def load_store_config():
-    if os.path.exists(STORE_CONFIG_FILE):
-        try:
-            with open(STORE_CONFIG_FILE, "r") as f: return json.load(f)
-        except: return {"price": 80}
-    return {"price": 80} # Default price
-
-def save_store_config(data):
-    with open(STORE_CONFIG_FILE, "w") as f: json.dump(data, f)
-
-def load_codes(filename):
-    if os.path.exists(filename):
-        with open(filename, "r") as f: return [c.strip() for c in f.readlines() if c.strip()]
-    return []
-
-def save_codes(filename, c_list):
-    with open(filename, "w") as f: f.write("\n".join(c_list))
 
 # ================= LOGIC =================
 async def is_joined(bot, user_id):
@@ -116,22 +92,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     uid = str(user_id)
     first_name = update.effective_user.first_name or "New User"
-    users = await load_users()
     
-    if uid not in users:
-        users[uid] = {"balance": 0, "refs": [], "referred_by": "None", "state": "NORMAL", "name": first_name}
+    user = users_ref.child(uid).get()
+    
+    if not user:
+        users_ref.child(uid).set({"balance": 0, "refs": [], "referred_by": "None", "state": "NORMAL", "name": first_name})
         if context.args:
             ref_id = str(context.args[0])
-            if ref_id in users and ref_id != uid and users.get(uid, {}).get("referred_by") != ref_id:
-                users[uid]["referred_by"] = ref_id
-                users[ref_id]["balance"] += REFER_REWARD
-                if "refs" not in users[ref_id]: users[ref_id]["refs"] = []
-                if uid not in users[ref_id]["refs"]:
-                    users[ref_id]["refs"].append(uid)
+            referrer = users_ref.child(ref_id).get()
+            if referrer and ref_id != uid and referrer.get("referred_by") != uid:
+                users_ref.child(uid).update({"referred_by": ref_id})
+                
+                new_bal = referrer.get("balance", 0) + REFER_REWARD
+                refs_list = referrer.get("refs") or []
+                if uid not in refs_list:
+                    refs_list.append(uid)
+                    users_ref.child(ref_id).update({"balance": new_bal, "refs": refs_list})
                     try:
                         await context.bot.send_message(chat_id=int(ref_id), text=f"🔔 **Naya Refer!**\n*{first_name}* ne aapke link se join kiya. Aapko **+{REFER_REWARD} coin** mil gaya!", parse_mode="Markdown")
                     except: pass
-        await save_users(users)
 
     if not await is_joined(context.bot, user_id):
         await update.message.reply_text("🔒 **Access Restricted**\nJoin channels to use bot👇", reply_markup=join_buttons(), parse_mode="Markdown")
@@ -143,7 +122,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     data = q.data
     uid = str(q.from_user.id)
-    users = await load_users()
     
     if data == "verify":
         if await is_joined(context.bot, q.from_user.id):
@@ -155,11 +133,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # BUY FLOW - STEP 1 (Show QR)
     elif data.startswith("qty_"):
         qty = int(data.split("_")[1])
-        config = load_store_config()
+        config = store_ref.get() or {"price": 80}
         total = config["price"] * qty
         
-        users[uid]["state"] = f"PAYING_{qty}_{total}"
-        await save_users(users)
+        users_ref.child(uid).update({"state": f"PAYING_{qty}_{total}"})
         
         msg = (f"🧾 **Order Summary**\n\n📦 Product: Myntra 50% Off\n🔢 Quantity: {qty}\n💰 **Total: ₹{total}**\n\n"
                f"🏦 **Payment Details:**\n👤 Name: `{PAYEE_NAME}`\n🔗 UPI ID: `{UPI_ID}` (Tap to copy)\n\n"
@@ -168,17 +145,16 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         btn = [[InlineKeyboardButton("✅ I Paid", callback_data="ipaid")]]
         await q.message.delete()
         
-        # Safe QR Loading Fallback
         try:
             await context.bot.send_photo(chat_id=int(uid), photo=QR_IMAGE_URL, caption=msg, reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
         except:
             await context.bot.send_message(chat_id=int(uid), text=f"[📷 Click Here to View QR]({QR_IMAGE_URL})\n\n{msg}", reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown", disable_web_page_preview=False)
 
     elif data == "ipaid":
-        state = users.get(uid, {}).get("state", "")
+        user = users_ref.child(uid).get()
+        state = user.get("state", "") if user else ""
         if state.startswith("PAYING_"):
-            users[uid]["state"] = state.replace("PAYING_", "WAIT_UTR_")
-            await save_users(users)
+            users_ref.child(uid).update({"state": state.replace("PAYING_", "WAIT_UTR_")})
             await q.message.reply_text("📝 **Apna 12-digit UTR / Transaction ID bhejein:**")
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -186,12 +162,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = str(update.effective_user.id)
     first_name = update.effective_user.first_name or "User"
     
-    users = await load_users()
-    if uid not in users: 
-        users[uid] = {"balance": 0, "refs": [], "state": "NORMAL", "name": first_name}
-        await save_users(users)
+    user = users_ref.child(uid).get()
+    if not user: 
+        users_ref.child(uid).set({"balance": 0, "refs": [], "state": "NORMAL", "name": first_name})
+        user = users_ref.child(uid).get()
 
-    state = users[uid].get("state", "NORMAL")
+    state = user.get("state", "NORMAL")
 
     # --- UTR SUBMIT TO ADMIN ---
     if state.startswith("WAIT_UTR_"):
@@ -203,8 +179,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode="Markdown")
         except: pass
-        users[uid]["state"] = "NORMAL"
-        await save_users(users)
+        users_ref.child(uid).update({"state": "NORMAL"})
         await update.message.reply_text("⏳ **Review mein hai!** Payment verify hone ke baad aapko code bhej diya jayega.")
         return
 
@@ -212,15 +187,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔒 Join channels👇", reply_markup=join_buttons())
         return
 
-    # --- STORE MENU (ONLY 50% ITEM) ---
+    # --- STORE MENU ---
     if text == "🛒 Buy Code":
-        config = load_store_config()
+        config = store_ref.get() or {"price": 80}
         btn = [[InlineKeyboardButton("1", callback_data="qty_1"), InlineKeyboardButton("2", callback_data="qty_2")],
                [InlineKeyboardButton("3", callback_data="qty_3"), InlineKeyboardButton("5", callback_data="qty_5")]]
         await update.message.reply_text(f"🛒 **Myntra 50% off Code**\nPrice: ₹{config['price']}/code\n\n**Select Quantity:**", reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
 
     elif text == "💰 Balance":
-        await update.message.reply_text(f"💰 **Balance:** {users[uid].get('balance', 0)} coins")
+        await update.message.reply_text(f"💰 **Balance:** {user.get('balance', 0)} coins")
         
     elif text == "👥 Refer Earn":
         bot_info = await context.bot.get_me()
@@ -232,8 +207,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Bonus ke liye ad dekhein:", reply_markup=btn)
         
     elif text == "💸 Free Withdraw":
-        stock = load_codes(FREE_CODES_FILE)
-        if users[uid].get("balance", 0) < WITHDRAW_COST:
+        stock = free_codes_ref.get() or []
+        if user.get("balance", 0) < WITHDRAW_COST:
             await update.message.reply_text(f"❌ {WITHDRAW_COST} coins chahiye!")
             return
         if not stock:
@@ -241,9 +216,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         my_code = stock.pop(0)
-        users[uid]["balance"] -= WITHDRAW_COST
-        save_codes(FREE_CODES_FILE, stock)
-        await save_users(users)
+        users_ref.child(uid).update({"balance": user["balance"] - WITHDRAW_COST})
+        free_codes_ref.set(stock)
         btn = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Verify Code", url=AD_LINK)]])
         await update.message.reply_text(f"✅ **Withdraw Success!**\n\n🎁 **Code:** `{my_code}`\n\n⚠️ {WITHDRAW_COST} Coins cut.", reply_markup=btn, parse_mode="Markdown")
             
@@ -251,38 +225,37 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"📞 Contact: {SUPPORT}")
 
 # ================= ADMIN COMMANDS =================
-
 async def addfree(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     new_c = " ".join(context.args)
     if new_c:
-        s = load_codes(FREE_CODES_FILE)
+        s = free_codes_ref.get() or []
         s.append(new_c)
-        save_codes(FREE_CODES_FILE, s)
+        free_codes_ref.set(s)
         await update.message.reply_text(f"✅ Added to Free Stock! Total: {len(s)}")
 
 async def addpaid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     new_c = " ".join(context.args)
     if new_c:
-        s = load_codes(PAID_CODES_FILE)
+        s = paid_codes_ref.get() or []
         s.append(new_c)
-        save_codes(PAID_CODES_FILE, s)
+        paid_codes_ref.set(s)
         await update.message.reply_text(f"✅ Added to Store Stock! Total: {len(s)}")
 
 async def setprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     try:
         new_price = int(context.args[0])
-        save_store_config({"price": new_price})
+        store_ref.set({"price": new_price})
         await update.message.reply_text(f"✅ Store Price updated to ₹{new_price}")
     except:
         await update.message.reply_text("❌ Error. Use format: /setprice 60")
 
 async def stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
-    free_stock = len(load_codes(FREE_CODES_FILE))
-    paid_stock = len(load_codes(PAID_CODES_FILE))
+    free_stock = len(free_codes_ref.get() or [])
+    paid_stock = len(paid_codes_ref.get() or [])
     await update.message.reply_text(f"📊 **Stock Report**\n\n🎁 Free Codes: {free_stock}\n🛒 Paid Codes (Store): {paid_stock}", parse_mode="Markdown")
 
 async def approve_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -291,16 +264,15 @@ async def approve_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target_uid = context.args[0]
         qty = int(context.args[1])
         
-        paid_stock = load_codes(PAID_CODES_FILE)
+        paid_stock = paid_codes_ref.get() or []
         if len(paid_stock) < qty:
             await update.message.reply_text(f"❌ Stock kam hai! Aapke paas sirf {len(paid_stock)} paid code bache hain.")
             return
             
-        # Nikaal lo codes
         codes_to_give = []
         for _ in range(qty):
             codes_to_give.append(paid_stock.pop(0))
-        save_codes(PAID_CODES_FILE, paid_stock)
+        paid_codes_ref.set(paid_stock)
         
         code_text = "\n".join([f"`{c}`" for c in codes_to_give])
         
@@ -330,7 +302,11 @@ def main():
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
+    application.add_error_handler(error_handler)
+    
     keep_alive()
+    print("🤖 Bot is starting up with Firebase...")
+    
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__': 
