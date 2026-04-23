@@ -1,6 +1,5 @@
 import os
 import json
-import asyncio
 import logging
 import firebase_admin
 from firebase_admin import credentials, db
@@ -9,7 +8,6 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
 )
 from telegram.ext import (
     ApplicationBuilder,
@@ -67,26 +65,16 @@ REFER_REWARD = 1
 CHANNELS = ["@Sumanearningtrickk", "@PaisaBachaoDealssss", "@EarnBazaarrr"]
 CHANNEL_LINKS = ["https://t.me/Sumanearningtrickk", "https://t.me/PaisaBachaoDealssss", "https://t.me/EarnBazaarrr"]
 
-# AAPKA RENDER URL (Screenshot se liya hai)
+# AAPKA RENDER URL (Dhyan se check karna yahi hai na)
 RENDER_URL = "https://just5.onrender.com"
 
 # ================= LOGIC =================
 async def is_joined(bot, user_id):
-    if user_id == ADMIN_ID: return True
-    for ch in CHANNELS:
-        try:
-            m = await bot.get_chat_member(chat_id=ch, user_id=user_id)
-            if m.status not in ["member", "administrator", "creator"]: return False
-        except: return False
+    # TEMPORARY BYPASS: Abhi ke liye ye channel check bypass kar dega taaki aap bot test kar sako
     return True
 
 def main_menu():
     return ReplyKeyboardMarkup([["🛒 Buy Code"], ["💰 Balance", "👥 Refer Earn"], ["🎁 Bonus", "💸 Free Withdraw"], ["🆘 Support"]], resize_keyboard=True)
-
-def join_buttons():
-    btn = [[InlineKeyboardButton(f"🔔 Join Channel {i+1}", url=l)] for i, l in enumerate(CHANNEL_LINKS)]
-    btn.append([InlineKeyboardButton("✅ Verify Joined", callback_data="verify")])
-    return InlineKeyboardMarkup(btn)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not FIREBASE_WORKING:
@@ -113,9 +101,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await context.bot.send_message(chat_id=int(ref_id), text=f"🔔 **Naya Refer!**\n*{first_name}* ne aapke link se join kiya. Aapko **+{REFER_REWARD} coin** mil gaya!", parse_mode="Markdown")
                     except: pass
 
-    if not await is_joined(context.bot, update.effective_user.id):
-        await update.message.reply_text("🔒 **Access Restricted**\nJoin channels👇", reply_markup=join_buttons(), parse_mode="Markdown")
-        return
+    # Channel check bypassed hai, isliye direct menu khulega
     await update.message.reply_text(f"🎉 **Welcome {first_name}!**", reply_markup=main_menu(), parse_mode="Markdown")
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -124,15 +110,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     data = q.data
     uid = str(q.from_user.id)
-    
-    if data == "verify":
-        if await is_joined(context.bot, q.from_user.id):
-            await q.message.delete()
-            await context.bot.send_message(chat_id=q.from_user.id, text="✅ **Verification Successful!**", reply_markup=main_menu(), parse_mode="Markdown")
-        else:
-            await q.message.reply_text("❌ Sabhi channels join karke Verify dabayein.")
             
-    elif data.startswith("qty_"):
+    if data.startswith("qty_"):
         qty = int(data.split("_")[1])
         config = store_ref.get() or {"price": 80}
         total = config["price"] * qty
@@ -142,8 +121,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                f"⚠️ *Payment ke baad '✅ I Paid' dabayein.*")
         btn = [[InlineKeyboardButton("✅ I Paid", callback_data="ipaid")]]
         await q.message.delete()
-        try: await context.bot.send_photo(chat_id=int(uid), photo=QR_IMAGE_URL, caption=msg, reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
-        except: await context.bot.send_message(chat_id=int(uid), text=f"[📷 QR Code]({QR_IMAGE_URL})\n\n{msg}", reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
+        try: 
+            await context.bot.send_photo(chat_id=int(uid), photo=QR_IMAGE_URL, caption=msg, reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
+        except: 
+            await context.bot.send_message(chat_id=int(uid), text=f"[📷 QR Code]({QR_IMAGE_URL})\n\n{msg}", reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
 
     elif data == "ipaid":
         user = users_ref.child(uid).get()
@@ -173,10 +154,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
         users_ref.child(uid).update({"state": "NORMAL"})
         await update.message.reply_text("⏳ **Review mein hai!** Payment verify hone ke baad code mil jayega.")
-        return
-
-    if not await is_joined(context.bot, update.effective_user.id):
-        await update.message.reply_text("🔒 Join channels👇", reply_markup=join_buttons())
         return
 
     if text == "🛒 Buy Code":
@@ -282,10 +259,9 @@ def main():
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
-    print("🚀 Majaik Trick: Webhook Starting...")
+    print("🚀 Webhook Starting...")
     PORT = int(os.environ.get("PORT", "10000"))
     
-    # MAGIC TRICK: WEBHOOK (No more polling errors!)
     application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
