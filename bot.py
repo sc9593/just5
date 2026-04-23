@@ -247,15 +247,36 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=int(context.args[0]), text="❌ **Rejected!** Payment verify nahi hui.")
         except: pass
 
+import logging
+
+# Ye bot ki saari harkatein track karega
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Agar bot crash hoga, toh Render Logs mein laal rang se error dikhega
+    print(f"❌❌❌ BOT MEIN ERROR AAYA: {context.error}")
+
 def main():
     application = ApplicationBuilder().token(BOT_TOKEN).build()
+    
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("addcode", addfreecode))
+    application.add_handler(CommandHandler("addcode", addfreecode)) 
     application.add_handler(CommandHandler("approve", approve_order))
     application.add_handler(CommandHandler("reject", reject_order))
+    
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    
+    # Error Tracker Add Kar Diya
+    application.add_error_handler(error_handler)
+    
     keep_alive()
-    application.run_polling()
+    print("✅ Web Server Running. Bot Telegram se connect ho raha hai...")
+    
+    # drop_pending_updates=True purane atke hue messages ko delete karke bot ko fresh start dega
+    application.run_polling(drop_pending_updates=True)
+
+if __name__ == '__main__':
+    main()
 
 if __name__ == '__main__': main()
