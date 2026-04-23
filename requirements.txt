@@ -1,4 +1,5 @@
 python-telegram-bot==20.7
 flask
+firebase-admin
 python-telegram-bot  # (Ya jo bhi library aap use kar rahe hain)
 
