@@ -39,7 +39,7 @@ def run(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
 def keep_alive(): Thread(target=run).start()
 
 # ================= CONFIG =================
-BOT_TOKEN = "8653750221:AAHc-BZI3lXNRyJ3xOa9SGuFOK_3uJcqPco"
+BOT_TOKEN = "8653750221:AAHx4A_npTXnorIqHHP6tCKGgOVwRyQ9QZw"
 ADMIN_ID = 7132741918
 SUPPORT = "@myntracodes"
 AD_LINK = "https://omg10.com/4/10903029"
