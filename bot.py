@@ -20,10 +20,12 @@ def keep_alive(): Thread(target=run).start()
 # ================= CONFIGURATION =================
 BOT_TOKEN = "8653750221:AAHx4A_npTXnorIqHHP6tCKGgOVwRyQ9QZw"
 ADMIN_ID = 7132741918
-SUPPORT = "@myntracodes"
+SUPPORT = "@BOYSPROOF"
 AD_LINK = "https://omg10.com/4/10903029"
 UPI_ID = "paytmqr1qqff9il6x@paytm"
 PAYEE_NAME = "Suman Chowdhury"
+
+# QR Code Link (Updated)
 QR_IMAGE_URL = "https://i.postimg.cc/VNxwYmcZ/Paytm-QRcode-1758815347919.png"
 
 # Rules
@@ -135,7 +137,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_un = (await context.bot.get_me()).username
         msg = (f"👥 **Refer & Earn**\n\n"
                f"🔥 1 Refer = {REFER_REWARD} Coin\n"
-               f"🎁 8 Refer = 1 Myntra Code\n\n"
+               f"🎁 {WITHDRAW_COST} Refer = 1 Myntra Code\n\n"
                f"🔗 Your Link: `https://t.me/{bot_un}?start={uid}`")
         await update.message.reply_text(msg, parse_mode="Markdown")
 
@@ -146,7 +148,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "💸 Free Withdraw":
         stock = get_stock(FREE_STOCK_FILE)
         if user["balance"] < WITHDRAW_COST:
-            await update.message.reply_text(f"❌ Minimum {WITHDRAW_COST} Refer chahiye!")
+            await update.message.reply_text(f"❌ Minimum {WITHDRAW_COST} Coins chahiye!")
         elif not stock:
             await update.message.reply_text("❌ Free stock khali hai, wait karo!")
         else:
@@ -167,31 +169,36 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if q.data == "verify":
         if await is_joined(context.bot, int(uid)):
-            # REFERRAL CREDIT ON JOIN
             referrer = db["users"][uid].get("referred_by")
             if referrer and not db["users"][uid].get("joined"):
                 if referrer in db["users"]:
                     db["users"][referrer]["balance"] += REFER_REWARD
                     db["users"][uid]["joined"] = True
                     save_db(db)
-                    try: await context.bot.send_message(chat_id=int(referrer), text="👥 **Refer Counted!** User ne channel join kar liya hai.")
+                    try: await context.bot.send_message(chat_id=int(referrer), text="👥 **Refer Counted!** User ne channel join kar liya hai. +1 Coin!")
                     except: pass
             
             await q.message.delete()
             await context.bot.send_message(chat_id=int(uid), text="✅ **Verified!** Ab aap bot use kar sakte hain.", reply_markup=main_menu())
         else:
-            await q.message.reply_text("❌ Abhi bhi join nahi kiya!")
+            await q.message.reply_text("❌ Abhi bhi saare channels join nahi kiye!")
 
     elif q.data == "buy_confirm":
-        msg = f"🧾 **Payment Details**\n\nUPI: `{UPI_ID}`\nName: {PAYEE_NAME}\n\nPay karke **I Paid** button dabayein."
+        msg = f"🧾 **Payment Details**\n\nUPI: `{UPI_ID}`\nName: {PAYEE_NAME}\n\nPay karke **✅ I Paid** button dabayein."
         btn = [[InlineKeyboardButton("✅ I Paid", callback_data="ipaid")]]
-        try: await context.bot.send_photo(chat_id=int(uid), photo=QR_IMAGE_URL, caption=msg, reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
-        except: await context.bot.send_message(chat_id=int(uid), text=msg, reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
+        
+        # QR Code Image send block (Robust method)
+        try:
+            await context.bot.send_photo(chat_id=int(uid), photo=QR_IMAGE_URL, caption=msg, reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown")
+        except Exception as e:
+            # Agar image block ho jaye, to sirf text bhejega URL ke saath
+            fallback_msg = f"[📷 Click here to view QR Code]({QR_IMAGE_URL})\n\n{msg}"
+            await context.bot.send_message(chat_id=int(uid), text=fallback_msg, reply_markup=InlineKeyboardMarkup(btn), parse_mode="Markdown", disable_web_page_preview=False)
 
     elif q.data == "ipaid":
         db["users"][uid]["state"] = "WAIT_UTR"
         save_db(db)
-        await context.bot.send_message(chat_id=int(uid), text="📝 **Ab apna 12-digit UTR ID bhejein:**")
+        await context.bot.send_message(chat_id=int(uid), text="📝 **Ab apna 12-digit UTR ID (Transaction ID) bhejein:**")
 
 # ================= ADMIN COMMANDS =================
 async def addpaid(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -210,18 +217,48 @@ async def addfree(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cur.extend(codes); save_stock(FREE_STOCK_FILE, cur)
         await update.message.reply_text(f"✅ {len(codes)} Free stock added.")
 
+# FIXED APPROVE COMMAND
 async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     try:
-        user_id, qty = context.args[0], int(context.args[1])
+        if len(context.args) < 1:
+            await update.message.reply_text("❌ Format: `/approve USER_ID QTY`")
+            return
+            
+        user_id = context.args[0]
+        # Agar admin ne quantity nahi daali, toh default 1 manega
+        qty = int(context.args[1]) if len(context.args) > 1 else 1 
+        
         stock = get_stock(PAID_STOCK_FILE)
         if len(stock) >= qty:
             given = [stock.pop(0) for _ in range(qty)]
             save_stock(PAID_STOCK_FILE, stock)
-            await context.bot.send_message(chat_id=int(user_id), text="✅ **Payment Approved!**\n\nCode: " + "\n".join([f"`{c}`" for c in given]), parse_mode="Markdown")
-            await update.message.reply_text("Bhej diya!")
-        else: await update.message.reply_text("Stock Low!")
-    except: pass
+            
+            # User ko message
+            await context.bot.send_message(chat_id=int(user_id), text="✅ **Payment Approved!**\n\nCode: \n" + "\n".join([f"`{c}`" for c in given]), parse_mode="Markdown")
+            # Admin ko message
+            await update.message.reply_text(f"✅ Bhej diya! User {user_id} ko {qty} code de diye gaye hain.")
+        else: 
+            await update.message.reply_text(f"❌ Stock Low! Sirf {len(stock)} codes bache hain.")
+    except Exception as e: 
+        await update.message.reply_text(f"❌ Error: {e}")
+
+# ADDED REJECT COMMAND
+async def reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    try:
+        if len(context.args) < 1:
+            await update.message.reply_text("❌ Format: `/reject USER_ID`")
+            return
+            
+        user_id = context.args[0]
+        
+        # User ko message
+        await context.bot.send_message(chat_id=int(user_id), text=f"❌ **Payment Rejected!**\n\nAapka UTR verify nahi ho paya. Admin se sampark karein: {SUPPORT}")
+        # Admin ko message
+        await update.message.reply_text(f"✅ User {user_id} ko Reject message bhej diya gaya hai.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
 
 async def stock_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
@@ -239,6 +276,7 @@ def main():
     application.add_handler(CommandHandler("addpaid", addpaid))
     application.add_handler(CommandHandler("addfree", addfree))
     application.add_handler(CommandHandler("approve", approve))
+    application.add_handler(CommandHandler("reject", reject)) # Added Reject
     application.add_handler(CommandHandler("stock", stock_check))
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
